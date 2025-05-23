@@ -1,16 +1,24 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
-import 'sayfa2.dart'; // Sayfa2'yi import et
+import 'sayfa2.dart';
 
 void main() {
-  runApp(MyApp());
+  runApp(FaturaApp());
 }
 
-class MyApp extends StatelessWidget {
+class FaturaApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(debugShowCheckedModeBanner: false, home: LoginScreen());
+    return MaterialApp(
+      title: 'Fatura Uygulaması',
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData(
+        primaryColor: Color(0xFF2E7D6B), // Koyu yeşil-turkuaz
+        fontFamily: 'SF Pro Display',
+      ),
+      home: LoginScreen(),
+    );
   }
 }
 
@@ -23,6 +31,8 @@ class _LoginScreenState extends State<LoginScreen> {
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
   String _message = '';
+  bool _isIndividual = true;
+  bool _isLoading = false;
 
   Future<void> _login() async {
     final String email = _emailController.text;
@@ -35,7 +45,11 @@ class _LoginScreenState extends State<LoginScreen> {
       return;
     }
 
-    final Uri url = Uri.parse('http://192.168.0.48:5237/api/User/Login/login');
+    setState(() {
+      _isLoading = true;
+    });
+
+    final Uri url = Uri.parse('https://localhost:7259/api/Auth/login');
     final Map<String, String> headers = {'Content-Type': 'application/json'};
     final Map<String, String> body = {'email': email, 'password': password};
 
@@ -45,166 +59,534 @@ class _LoginScreenState extends State<LoginScreen> {
         headers: headers,
         body: json.encode(body),
       );
-      print('Response body: ${response.body}');
 
       if (response.statusCode == 200) {
-        setState(() {
-          _message = 'Giriş başarılı!';
-        });
-        // Başarılı giriş sonrası Sayfa2'ye yönlendirme
-        Navigator.push(
-          context,
-          MaterialPageRoute(builder: (context) => Sayfa2()),
-        );
+        final Map<String, dynamic> responseData = json.decode(response.body);
+
+        if (responseData.containsKey('token') &&
+            responseData['token'] != null &&
+            responseData['token'].toString().isNotEmpty) {
+          setState(() {
+            _message = 'Giriş başarılı!';
+            _isLoading = false;
+          });
+
+          // Token’ı localde saklamak istersen:
+          // SharedPreferences prefs = await SharedPreferences.getInstance();
+          // await prefs.setString('auth_token', responseData['token']);
+
+          // Modal kapat ve Sayfa2’ye geç
+          Navigator.pop(context);
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (context) => Sayfa2()),
+          );
+          return;
+        } else {
+          setState(() {
+            _message = 'Geçersiz yanıt. Token bulunamadı.';
+            _isLoading = false;
+          });
+        }
       } else {
         setState(() {
-          _message = 'Giriş başarısız. Lütfen tekrar deneyin.';
+          _message = 'Giriş başarısız. Lütfen bilgilerinizi kontrol edin.';
+          _isLoading = false;
         });
       }
     } catch (error) {
       setState(() {
         _message = 'Bir hata oluştu: $error';
+        _isLoading = false;
       });
+      print('Login error: $error');
     }
+  }
+
+  void _showLoginModal() {
+    _emailController.clear();
+    _passwordController.clear();
+    setState(() {
+      _message = '';
+    });
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (BuildContext context) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            return Container(
+              height: MediaQuery.of(context).size.height * 0.85,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.only(
+                  topLeft: Radius.circular(24),
+                  topRight: Radius.circular(24),
+                ),
+              ),
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(
+                  24,
+                  20,
+                  24,
+                  MediaQuery.of(context).viewInsets.bottom + 24,
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    // Handle bar
+                    Center(
+                      child: Container(
+                        width: 40,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: Colors.grey[300],
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+                    ),
+
+                    SizedBox(height: 24),
+
+                    // Başlık
+                    Text(
+                      'Hesabınıza Giriş Yapın',
+                      style: TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF2E7D6B),
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+
+                    SizedBox(height: 32),
+
+                    // E-posta alanı
+                    Container(
+                      decoration: BoxDecoration(
+                        color: Color(0xFFF8FFFE),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: Color(0xFFE0F2EF), width: 1),
+                      ),
+                      child: TextField(
+                        controller: _emailController,
+                        keyboardType: TextInputType.emailAddress,
+                        decoration: InputDecoration(
+                          labelText: 'E-posta Adresi',
+                          labelStyle: TextStyle(color: Color(0xFF6B9B8E)),
+                          prefixIcon: Icon(
+                            Icons.email_outlined,
+                            color: Color(0xFF6B9B8E),
+                          ),
+                          border: InputBorder.none,
+                          contentPadding: EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 16,
+                          ),
+                        ),
+                      ),
+                    ),
+
+                    SizedBox(height: 16),
+
+                    // Şifre alanı
+                    Container(
+                      decoration: BoxDecoration(
+                        color: Color(0xFFF8FFFE),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: Color(0xFFE0F2EF), width: 1),
+                      ),
+                      child: TextField(
+                        controller: _passwordController,
+                        obscureText: true,
+                        decoration: InputDecoration(
+                          labelText: 'Şifre',
+                          labelStyle: TextStyle(color: Color(0xFF6B9B8E)),
+                          prefixIcon: Icon(
+                            Icons.lock_outline,
+                            color: Color(0xFF6B9B8E),
+                          ),
+                          border: InputBorder.none,
+                          contentPadding: EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 16,
+                          ),
+                        ),
+                      ),
+                    ),
+
+                    SizedBox(height: 24),
+
+                    // Giriş butonu
+                    Container(
+                      height: 56,
+                      child: ElevatedButton(
+                        onPressed:
+                            _isLoading
+                                ? null
+                                : () async {
+                                  await _login();
+                                  setModalState(() {});
+                                },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Color(0xFF2E7D6B),
+                          foregroundColor: Colors.white,
+                          elevation: 0,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                        ),
+                        child:
+                            _isLoading
+                                ? CircularProgressIndicator(
+                                  color: Colors.white,
+                                  strokeWidth: 2,
+                                )
+                                : Text(
+                                  'Giriş Yap',
+                                  style: TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                      ),
+                    ),
+
+                    // Hata/Başarı mesajı
+                    if (_message.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 16),
+                        child: Container(
+                          padding: EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color:
+                                _message == 'Giriş başarılı!'
+                                    ? Color(0xFFE8F5E8)
+                                    : Color(0xFFFFF4F4),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Text(
+                            _message,
+                            style: TextStyle(
+                              color:
+                                  _message == 'Giriş başarılı!'
+                                      ? Color(0xFF2E7D6B)
+                                      : Color(0xFFD32F2F),
+                              fontWeight: FontWeight.w500,
+                              fontSize: 14,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                        ),
+                      ),
+
+                    SizedBox(height: 24),
+
+                    // Şifremi unuttum
+                    TextButton(
+                      onPressed: () {
+                        // Şifremi unuttum işlevi
+                      },
+                      child: Text(
+                        'Şifremi Unuttum',
+                        style: TextStyle(
+                          color: Color(0xFF6B9B8E),
+                          fontSize: 16,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [Colors.blue.shade200, Colors.white],
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-          ),
-        ),
+      backgroundColor: Colors.white,
+      body: SafeArea(
         child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.receipt, size: 40, color: Colors.blue.shade700),
-                SizedBox(width: 10),
-                Text(
-                  'Faturacım',
-                  style: TextStyle(
-                    fontSize: 32,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.blue.shade700,
-                  ),
+            // Üst Kısım
+            Expanded(
+              flex: 7,
+              child: Padding(
+                padding: EdgeInsets.symmetric(horizontal: 24),
+                child: Column(
+                  children: [
+                    SizedBox(height: 40),
+
+                    // Toggle Buttons
+                    Container(
+                      decoration: BoxDecoration(
+                        color: Color(0xFFF0F9F7),
+                        borderRadius: BorderRadius.circular(25),
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: GestureDetector(
+                              onTap: () => setState(() => _isIndividual = true),
+                              child: Container(
+                                padding: EdgeInsets.symmetric(vertical: 12),
+                                decoration: BoxDecoration(
+                                  color:
+                                      _isIndividual
+                                          ? Colors.white
+                                          : Colors.transparent,
+                                  borderRadius: BorderRadius.circular(25),
+                                  boxShadow:
+                                      _isIndividual
+                                          ? [
+                                            BoxShadow(
+                                              color: Color(
+                                                0xFF2E7D6B,
+                                              ).withOpacity(0.1),
+                                              blurRadius: 8,
+                                              offset: Offset(0, 2),
+                                            ),
+                                          ]
+                                          : null,
+                                ),
+                                child: Text(
+                                  'Bireysel',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    fontWeight:
+                                        _isIndividual
+                                            ? FontWeight.w600
+                                            : FontWeight.w400,
+                                    color:
+                                        _isIndividual
+                                            ? Color(0xFF2E7D6B)
+                                            : Color(0xFF6B9B8E),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                          Expanded(
+                            child: GestureDetector(
+                              onTap:
+                                  () => setState(() => _isIndividual = false),
+                              child: Container(
+                                padding: EdgeInsets.symmetric(vertical: 12),
+                                decoration: BoxDecoration(
+                                  color:
+                                      !_isIndividual
+                                          ? Colors.white
+                                          : Colors.transparent,
+                                  borderRadius: BorderRadius.circular(25),
+                                  boxShadow:
+                                      !_isIndividual
+                                          ? [
+                                            BoxShadow(
+                                              color: Color(
+                                                0xFF2E7D6B,
+                                              ).withOpacity(0.1),
+                                              blurRadius: 8,
+                                              offset: Offset(0, 2),
+                                            ),
+                                          ]
+                                          : null,
+                                ),
+                                child: Text(
+                                  'Kurumsal',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    fontWeight:
+                                        !_isIndividual
+                                            ? FontWeight.w600
+                                            : FontWeight.w400,
+                                    color:
+                                        !_isIndividual
+                                            ? Color(0xFF2E7D6B)
+                                            : Color(0xFF6B9B8E),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    SizedBox(height: 60),
+
+                    // Profil Resmi
+                    Stack(
+                      children: [
+                        Container(
+                          width: 100,
+                          height: 100,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            gradient: LinearGradient(
+                              colors: [Color(0xFF2E7D6B), Color(0xFF4A9D8E)],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            ),
+                          ),
+                          child: Icon(
+                            Icons.person,
+                            size: 50,
+                            color: Colors.white,
+                          ),
+                        ),
+                        Positioned(
+                          bottom: 5,
+                          right: 5,
+                          child: Container(
+                            width: 28,
+                            height: 28,
+                            decoration: BoxDecoration(
+                              color: Color(0xFFFF8A50), // Turuncu vurgu rengi
+                              shape: BoxShape.circle,
+                              border: Border.all(color: Colors.white, width: 2),
+                            ),
+                            child: Icon(
+                              Icons.receipt_long,
+                              size: 14,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+
+                    SizedBox(height: 24),
+
+                    // Hoşgeldin Metni
+                    Text(
+                      'Merhaba',
+                      style: TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.w300,
+                        color: Colors.black87,
+                      ),
+                    ),
+                    Text(
+                      'Fatura Kullanıcısı',
+                      style: TextStyle(
+                        fontSize: 28,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.black,
+                      ),
+                    ),
+
+                    SizedBox(height: 16),
+
+                    // Hesap Değiştir
+                    GestureDetector(
+                      onTap: () => print("Hesap değiştir"),
+                      child: Text(
+                        'Sen değil misin?',
+                        style: TextStyle(
+                          color: Color(0xFF6B9B8E),
+                          fontSize: 16,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+
+                    SizedBox(height: 50),
+
+                    // Giriş Butonu
+                    Container(
+                      width: double.infinity,
+                      height: 56,
+                      child: ElevatedButton(
+                        onPressed: _showLoginModal,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Color(0xFF2E7D6B),
+                          foregroundColor: Colors.white,
+                          elevation: 0,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(28),
+                          ),
+                        ),
+                        child: Text(
+                          'Giriş Yap',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-              ],
+              ),
             ),
-            SizedBox(height: 30),
-            Text(
-              'Giriş Yap',
-              style: TextStyle(fontSize: 30, fontWeight: FontWeight.bold),
-            ),
-            SizedBox(height: 20),
-            Padding(
-              padding: EdgeInsets.symmetric(horizontal: 40),
+
+            // Alt Kısım - Gradient Panel
+            Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [Color(0xFF2E7D6B), Color(0xFF4A9D8E)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.only(
+                  topLeft: Radius.circular(24),
+                  topRight: Radius.circular(24),
+                ),
+              ),
+              padding: EdgeInsets.symmetric(vertical: 24, horizontal: 20),
               child: Column(
                 children: [
-                  TextField(
-                    controller: _emailController,
-                    decoration: InputDecoration(
-                      prefixIcon: Icon(Icons.person),
-                      hintText: 'E-posta veya kullanıcı adı',
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(25),
-                      ),
-                    ),
-                  ),
-                  SizedBox(height: 15),
-                  TextField(
-                    controller: _passwordController,
-                    obscureText: true,
-                    decoration: InputDecoration(
-                      prefixIcon: Icon(Icons.lock),
-                      hintText: 'Şifre',
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(25),
-                      ),
-                    ),
-                  ),
-                  SizedBox(height: 20),
-                  ElevatedButton(
-                    onPressed: _login,
-                    style: ElevatedButton.styleFrom(
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      padding: EdgeInsets.symmetric(
-                        horizontal: 80,
-                        vertical: 15,
-                      ),
-                    ),
-                    child: Text('Giriş Yap'),
-                  ),
-                  SizedBox(height: 10),
-                  TextButton(
-                    onPressed: () {},
-                    child: Text('Şifreni mi unuttun?'),
-                  ),
-                  SizedBox(height: 20),
-                  if (_message.isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.all(8.0),
-                      child: Text(
-                        _message,
-                        style: TextStyle(
-                          color:
-                              _message == 'Giriş başarılı!'
-                                  ? Colors.green
-                                  : Colors.red,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16,
-                        ),
-                      ),
-                    ),
+                  // İkonlar
                   Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
+                    mainAxisAlignment: MainAxisAlignment.spaceAround,
                     children: [
-                      Expanded(child: Divider(thickness: 1)),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 8.0),
-                        child: Text('veya ile bağlan'),
+                      _buildBottomIcon(
+                        Icons.receipt_long,
+                        'Fatura\nOluştur',
+                        Color(0xFFFF8A50),
                       ),
-                      Expanded(child: Divider(thickness: 1)),
-                    ],
-                  ),
-                  SizedBox(height: 20),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      ElevatedButton.icon(
-                        onPressed: () {},
-                        icon: Icon(Icons.facebook, color: Colors.white),
-                        label: Text('Facebook'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.blue,
-                        ),
+                      _buildBottomIcon(
+                        Icons.qr_code_scanner,
+                        'QR\nTara',
+                        Color(0xFF70B7A8),
                       ),
-                      SizedBox(width: 10),
-                      ElevatedButton.icon(
-                        onPressed: () {},
-                        icon: Icon(Icons.g_mobiledata, color: Colors.white),
-                        label: Text('Google'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.redAccent,
-                        ),
+                      _buildBottomIcon(
+                        Icons.history,
+                        'Fatura\nGeçmişi',
+                        Color(0xFFFFB366),
+                      ),
+                      _buildBottomIcon(
+                        Icons.analytics,
+                        'Raporlar',
+                        Color(0xFF85C4B8),
                       ),
                     ],
                   ),
+
                   SizedBox(height: 20),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text('Hesabın yok mu?'),
-                      TextButton(onPressed: () {}, child: Text('Kayıt ol')),
-                    ],
+
+                  // Vergi bilgisi
+                  Container(
+                    padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(
+                      'KDV %20 | ÖTV bilgileri güncel',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
                   ),
                 ],
               ),
@@ -212,6 +594,40 @@ class _LoginScreenState extends State<LoginScreen> {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildBottomIcon(IconData icon, String label, Color iconColor) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 48,
+          height: 48,
+          decoration: BoxDecoration(
+            color: Colors.white,
+            shape: BoxShape.circle,
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.1),
+                blurRadius: 8,
+                offset: Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Icon(icon, color: iconColor, size: 24),
+        ),
+        SizedBox(height: 8),
+        Text(
+          label,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: 12,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+      ],
     );
   }
 }

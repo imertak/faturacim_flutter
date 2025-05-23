@@ -34,6 +34,7 @@ dependencies:
   path_provider: ^2.0.11 # Resimleri kaydetmek için
   path: ^1.8.0 # Dosya yolu işlemleri için
   http: ^0.13.5
+  fl_chart: ^0.68.0
 
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
