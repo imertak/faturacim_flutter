@@ -1,9 +1,12 @@
 // lib/sayfa2.dart
+import 'dart:convert';
 import 'package:faturacim/gecmisfaturalarsayfas%C4%B1.dart';
+import 'package:faturacim/globals.dart';
 import 'package:faturacim/kategorianalizisayfasi.dart';
 import 'package:faturacim/profilsayfasi.dart';
 import 'package:faturacim/vergihesaplasayfasi.dart';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import 'kamerasayfasi.dart';
 
 class Sayfa2 extends StatefulWidget {
@@ -12,32 +15,126 @@ class Sayfa2 extends StatefulWidget {
 }
 
 class _Sayfa2State extends State<Sayfa2> {
-  final List<Map<String, dynamic>> recentInvoices = [
-    {
-      'company': 'Türk Telekom',
-      'amount': '245,80',
-      'date': '15 Mayıs 2025',
-      'type': 'Telefon',
-      'status': 'paid',
-      'category': 'İletişim',
-    },
-    {
-      'company': 'İGDAŞ',
-      'amount': '189,45',
-      'date': '12 Mayıs 2025',
-      'type': 'Doğalgaz',
-      'status': 'pending',
-      'category': 'Enerji',
-    },
-    {
-      'company': 'İSKİ',
-      'amount': '78,90',
-      'date': '10 Mayıs 2025',
-      'type': 'Su',
-      'status': 'paid',
-      'category': 'Enerji',
-    },
-  ];
+  List<Map<String, dynamic>> recentInvoices = [];
+  bool isLoadingInvoices = true;
+  // Döviz kurları için değişkenler
+  Map<String, dynamic> exchangeRates = {};
+  Map<String, String> previousRates = {};
+  bool isLoadingRates = true;
+  double monthlyTotal = 0;
+  String monthlyTotalText = "";
+
+  Future<void> fetchUserInvoices() async {
+    try {
+      final startDate = DateTime(2020); // çok eski bir tarih
+      DateTime now = DateTime.now();
+
+      DateTime endDate = DateTime(
+        now.year,
+        now.month,
+        now.day,
+        23,
+        59,
+        59,
+      ).add(const Duration(days: 1)); // bugüne kadar
+      final encodedEmail = Uri.encodeComponent(userEmail!);
+
+      final url = Uri.parse(
+        'http://localhost:5202/api/invoice/user/$encodedEmail'
+        '?startDate=${startDate.toIso8601String().split("T")[0]}'
+        '&endDate=${endDate.toIso8601String().split("T")[0]}',
+      );
+
+      final response = await http.get(url);
+
+      if (response.statusCode == 200) {
+        final List<dynamic> invoicesData = json.decode(response.body);
+
+        setState(() {
+          recentInvoices =
+              invoicesData
+                  .map(
+                    (invoice) => {
+                      'company': invoice['title'] ?? 'Bilinmeyen Şirket',
+                      'amount': (invoice['amount'] ?? 0.0).toStringAsFixed(2),
+                      'date': _formatDate(invoice['issueDate']),
+                      'type': _determineInvoiceType(invoice['category']),
+                      'status':
+                          invoice['payingStatus'] == null ? 'pending' : 'paid',
+                      'category': invoice['category'] ?? 'Diğer',
+                    },
+                  )
+                  .toList()
+                  .take(3)
+                  .toList(); // Son 3 faturayı al
+
+          isLoadingInvoices = false;
+          monthlyTotal = _calculateMonthlyTotal(invoicesData);
+          monthlyTotalText = monthlyTotal.toStringAsFixed(2) + ' TL';
+        });
+      } else {
+        print('Fatura çekme hatası: ${response.statusCode}');
+        setState(() {
+          isLoadingInvoices = false;
+        });
+      }
+    } catch (e) {
+      print('Fatura çekme hatası: $e');
+      setState(() {
+        isLoadingInvoices = false;
+      });
+    }
+  }
+
+  double _calculateMonthlyTotal(List<dynamic> invoicesData) {
+    return invoicesData.fold(0.0, (total, invoice) {
+      return total + (invoice['amount'] ?? 0.0);
+    });
+  }
+
+  String _formatDate(String? dateString) {
+    if (dateString == null) return 'Tarih Yok';
+
+    try {
+      DateTime date = DateTime.parse(dateString);
+      return '${date.day} ${_getMonthName(date.month)} ${date.year}';
+    } catch (e) {
+      return 'Geçersiz Tarih';
+    }
+  }
+
+  String _getMonthName(int month) {
+    const months = [
+      'Ocak',
+      'Şubat',
+      'Mart',
+      'Nisan',
+      'Mayıs',
+      'Haziran',
+      'Temmuz',
+      'Ağustos',
+      'Eylül',
+      'Ekim',
+      'Kasım',
+      'Aralık',
+    ];
+    return months[month - 1];
+  }
+
+  String _determineInvoiceType(String? category) {
+    if (category == null) return 'Diğer';
+
+    switch (category.toLowerCase()) {
+      case 'telefon':
+        return 'Telefon';
+      case 'doğalgaz':
+        return 'Doğalgaz';
+      case 'su':
+        return 'Su';
+      default:
+        return 'Diğer';
+    }
+  }
 
   final List<Map<String, String>> quickActions = [
     {'title': 'Fatura\nTara', 'icon': 'camera', 'color': 'orange'},
@@ -58,39 +155,111 @@ class _Sayfa2State extends State<Sayfa2> {
       'time': '5 saat önce',
     },
   ];
-  // Kampanyalar için yeni bir liste ekleyelim
+
   final List<Map<String, dynamic>> campaigns = [
     {
       'title': 'Fatura İndirimi',
       'description': '%20\'ye varan indirim fırsatı!',
-      'image': 'assets/campaign1.png',
+      'image': 'campaign.jpg',
       'color': Color(0xFF2E7D6B),
     },
     {
       'title': 'Yeni Üye Kampanyası',
       'description': 'İlk faturanda %15 indirim',
-      'image': 'assets/campaign2.png',
+      'image': 'campaign2.png',
       'color': Color(0xFFFF8A50),
     },
     {
       'title': 'Dijital Fatura Avantajı',
       'description': 'Dijital faturaya geçenlere özel',
-      'image': 'assets/campaign3.png',
+      'image': 'campaign.jpg',
       'color': Color(0xFF4A9D8E),
     },
     {
       'title': 'Yeni Üye Kampanyası',
       'description': 'İlk faturanda %15 indirim',
-      'image': 'assets/campaign2.png',
+      'image': 'campaign2.png',
       'color': Color(0xFFFF8A50),
     },
     {
       'title': 'Dijital Fatura Avantajı',
       'description': 'Dijital faturaya geçenlere özel',
-      'image': 'assets/campaign3.png',
+      'image': 'campaign.jpg',
       'color': Color(0xFF4A9D8E),
     },
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    fetchUserInvoices();
+    fetchExchangeRates();
+    _startPeriodicUpdate();
+  }
+
+  void _startPeriodicUpdate() {
+    Future.delayed(Duration(minutes: 1), () {
+      if (mounted) {
+        fetchExchangeRates();
+        _startPeriodicUpdate();
+      }
+    });
+  }
+
+  Future<void> fetchExchangeRates() async {
+    const apiKey = '590cebb3a13a9186fa1309ef';
+
+    try {
+      if (exchangeRates.isNotEmpty) {
+        previousRates = {
+          'USD': exchangeRates['USD']?.toString() ?? '0',
+          'EUR': exchangeRates['EUR']?.toString() ?? '0',
+          'GBP': exchangeRates['GBP']?.toString() ?? '0',
+        };
+      }
+
+      final url = Uri.parse(
+        'https://v6.exchangerate-api.com/v6/$apiKey/latest/TRY',
+      );
+      final response = await http.get(url);
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+
+        if (data['conversion_rates'] != null) {
+          final rates = data['conversion_rates'];
+          setState(() {
+            exchangeRates = {
+              'USD': (1 / rates['USD']),
+              'EUR': (1 / rates['EUR']),
+              'GBP': (1 / rates['GBP']),
+            };
+            isLoadingRates = false;
+          });
+        }
+      } else {
+        print('API isteği başarısız: ${response.statusCode}');
+      }
+    } catch (e) {
+      print('Döviz kuru çekme hatası: $e');
+    }
+  }
+
+  String _calculateChange(String currency) {
+    if (previousRates.isEmpty || !previousRates.containsKey(currency)) {
+      return '+0.00';
+    }
+
+    double current = exchangeRates[currency]?.toDouble() ?? 0.0;
+    double previous = double.tryParse(previousRates[currency] ?? '0') ?? 0.0;
+
+    if (previous == 0.0) return '+0.00';
+
+    double change = current - previous;
+    String sign = change >= 0 ? '+' : '';
+
+    return '$sign${change.toStringAsFixed(2)}';
+  }
 
   void _showCampaignDetails(
     BuildContext context,
@@ -144,6 +313,7 @@ class _Sayfa2State extends State<Sayfa2> {
                   },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: campaign['color'],
+                    foregroundColor: Colors.white,
                   ),
                   child: Text('Detayları Gör'),
                 ),
@@ -276,7 +446,7 @@ class _Sayfa2State extends State<Sayfa2> {
                             ),
                             SizedBox(height: 8),
                             Text(
-                              '1.247,85 TL',
+                              '${monthlyTotalText}',
                               style: TextStyle(
                                 fontSize: 32,
                                 fontWeight: FontWeight.w700,
@@ -427,7 +597,6 @@ class _Sayfa2State extends State<Sayfa2> {
                                     ),
                                   );
                                 }
-                                // Diğer aksiyonlar için else-if ekleyebilirsin
                               },
                             );
                           }).toList(),
@@ -456,7 +625,14 @@ class _Sayfa2State extends State<Sayfa2> {
                           ),
                         ),
                         TextButton(
-                          onPressed: () {},
+                          onPressed: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => GecmisFaturalarSayfasi(),
+                              ),
+                            );
+                          },
                           child: Text(
                             'Tümünü Gör',
                             style: TextStyle(
@@ -483,13 +659,29 @@ class _Sayfa2State extends State<Sayfa2> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      'Piyasa & Haberler',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.black87,
-                      ),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          'Piyasa & Haberler',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.black87,
+                          ),
+                        ),
+                        if (isLoadingRates)
+                          SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              valueColor: AlwaysStoppedAnimation<Color>(
+                                Color(0xFF2E7D6B),
+                              ),
+                            ),
+                          ),
+                      ],
                     ),
                     SizedBox(height: 16),
                     Container(
@@ -502,10 +694,29 @@ class _Sayfa2State extends State<Sayfa2> {
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.spaceAround,
                         children: [
-                          _buildCurrencyItem('USD', '28.45', '+0.12'),
-                          _buildCurrencyItem('EUR', '30.89', '-0.05'),
-                          _buildCurrencyItem('GBP', '35.67', '+0.23'),
+                          _buildCurrencyItem(
+                            'USD',
+                            exchangeRates['USD']?.toStringAsFixed(2) ?? '0.00',
+                            _calculateChange('USD'),
+                          ),
+                          _buildCurrencyItem(
+                            'EUR',
+                            exchangeRates['EUR']?.toStringAsFixed(2) ?? '0.00',
+                            _calculateChange('EUR'),
+                          ),
+                          _buildCurrencyItem(
+                            'GBP',
+                            exchangeRates['GBP']?.toStringAsFixed(2) ?? '0.00',
+                            _calculateChange('GBP'),
+                          ),
                         ],
+                      ),
+                    ),
+                    SizedBox(height: 8),
+                    Center(
+                      child: Text(
+                        'Son güncelleme: ${DateTime.now().hour.toString().padLeft(2, '0')}:${DateTime.now().minute.toString().padLeft(2, '0')}',
+                        style: TextStyle(color: Colors.grey[500], fontSize: 11),
                       ),
                     ),
                     SizedBox(height: 16),
@@ -705,7 +916,16 @@ class _Sayfa2State extends State<Sayfa2> {
   }
 
   Widget _buildCurrencyItem(String currency, String rate, String change) {
-    final isPositive = change.startsWith('+');
+    final isPositive = change.startsWith('+') && change != '+0.00';
+    final isNegative = change.startsWith('-');
+    Color changeColor = Colors.grey[600]!;
+
+    if (isPositive) {
+      changeColor = Colors.green;
+    } else if (isNegative) {
+      changeColor = Colors.red;
+    }
+
     return Column(
       children: [
         Text(
@@ -731,7 +951,7 @@ class _Sayfa2State extends State<Sayfa2> {
           style: TextStyle(
             fontSize: 12,
             fontWeight: FontWeight.w500,
-            color: isPositive ? Colors.green : Colors.red,
+            color: changeColor,
           ),
         ),
       ],

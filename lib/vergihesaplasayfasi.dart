@@ -51,14 +51,14 @@ class _VergiHesaplaSayfasiState extends State<VergiHesaplaSayfasi> {
     return Scaffold(
       backgroundColor: const Color(0xFFF5F5F5),
       appBar: AppBar(
-        backgroundColor: const Color(0xFF66B3A0),
+        backgroundColor: Color(0xFF2E7D6B),
         elevation: 0,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back, color: Colors.white),
           onPressed: () => Navigator.of(context).pop(),
         ),
         title: const Text(
-          'Vergi Hesapla',
+          'HESAPLA',
           style: TextStyle(
             color: Colors.white,
             fontSize: 20,

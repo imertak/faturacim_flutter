@@ -1,5 +1,12 @@
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:excel/excel.dart';
 import 'package:faturacim/faturadetaysayfasi.dart';
+import 'package:faturacim/globals.dart';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+import 'package:path_provider/path_provider.dart';
 
 class GecmisFaturalarSayfasi extends StatefulWidget {
   @override
@@ -7,56 +14,103 @@ class GecmisFaturalarSayfasi extends StatefulWidget {
 }
 
 class _GecmisFaturalarSayfasiState extends State<GecmisFaturalarSayfasi> {
-  final List<Map<String, dynamic>> tumFaturalar = [
-    {
-      'company': 'Türk Telekom',
-      'amount': '245,80',
-      'date': '15 Mayıs 2025',
-      'type': 'Telefon',
-      'status': 'paid',
-      'category': 'İletişim',
-    },
-    {
-      'company': 'İGDAŞ',
-      'amount': '189,45',
-      'date': '12 Mayıs 2025',
-      'type': 'Doğalgaz',
-      'status': 'pending',
-      'category': 'Enerji',
-    },
-    {
-      'company': 'İSKİ',
-      'amount': '78,90',
-      'date': '10 Mayıs 2025',
-      'type': 'Su',
-      'status': 'paid',
-      'category': 'Enerji',
-    },
-    {
-      'company': 'Vodafone',
-      'amount': '135,50',
-      'date': '05 Mayıs 2025',
-      'type': 'Telefon',
-      'status': 'paid',
-      'category': 'İletişim',
-    },
-    {
-      'company': 'AYEDAŞ',
-      'amount': '215,75',
-      'date': '02 Mayıs 2025',
-      'type': 'Elektrik',
-      'status': 'paid',
-      'category': 'Enerji',
-    },
-  ];
-
+  List<Map<String, dynamic>> tumFaturalar = [];
   List<Map<String, dynamic>> _filtrelenmisFaturalar = [];
   String _secilenKategori = 'Tümü';
+  bool _isLoading = true;
 
   @override
   void initState() {
     super.initState();
-    _filtrelenmisFaturalar = tumFaturalar;
+    _fetchFaturalar();
+  }
+
+  Future<void> _fetchFaturalar() async {
+    try {
+      final encodedEmail = Uri.encodeComponent(userEmail!);
+      final url = Uri.parse(
+        'http://localhost:5202/api/invoice/user/$encodedEmail',
+      );
+
+      final response = await http.get(url);
+
+      if (response.statusCode == 200) {
+        final List<dynamic> invoicesData = json.decode(response.body);
+
+        setState(() {
+          tumFaturalar =
+              invoicesData.map((invoice) {
+                return {
+                  'id': invoice['id'],
+                  'company': invoice['title'] ?? 'Bilinmeyen Şirket',
+                  'amount': (invoice['amount'] ?? 0.0).toStringAsFixed(2),
+                  'date': _formatDate(invoice['issueDate']),
+                  'type': _determineInvoiceType(invoice['category']),
+                  'status':
+                      invoice['payingStatus'] == null ? 'pending' : 'paid',
+                  'category': invoice['category'] ?? 'Diğer',
+                };
+              }).toList();
+
+          _filtrelenmisFaturalar = tumFaturalar;
+          _isLoading = false;
+        });
+      } else {
+        print('Fatura çekme hatası: ${response.statusCode}');
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      print('Fatura çekme hatası: $e');
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
+
+  String _formatDate(String? dateString) {
+    if (dateString == null) return 'Tarih Yok';
+    try {
+      DateTime date = DateTime.parse(dateString);
+      return '${date.day} ${_getMonthName(date.month)} ${date.year}';
+    } catch (e) {
+      return 'Geçersiz Tarih';
+    }
+  }
+
+  String _getMonthName(int month) {
+    const months = [
+      'Ocak',
+      'Şubat',
+      'Mart',
+      'Nisan',
+      'Mayıs',
+      'Haziran',
+      'Temmuz',
+      'Ağustos',
+      'Eylül',
+      'Ekim',
+      'Kasım',
+      'Aralık',
+    ];
+    return months[month - 1];
+  }
+
+  String _determineInvoiceType(String? category) {
+    if (category == null) return 'Diğer';
+    switch (category.toLowerCase()) {
+      case 'telefon':
+        return 'Telefon';
+      case 'doğalgaz':
+        return 'Doğalgaz';
+      case 'su':
+        return 'Su';
+      case 'elektrik':
+        return 'Elektrik';
+      default:
+        return 'Diğer';
+    }
   }
 
   void _kategoriFiltreleme(String kategori) {
@@ -71,15 +125,71 @@ class _GecmisFaturalarSayfasiState extends State<GecmisFaturalarSayfasi> {
     });
   }
 
+  // -------------------- EXCEL AKTAR ---------------------
+  Future<void> exportToExcel(List<Map<String, dynamic>> faturalar) async {
+    var excel = Excel.createExcel();
+    Sheet sheetObject = excel['Faturalar'];
+
+    sheetObject.appendRow([
+      'ID',
+      'Şirket',
+      'Tutar',
+      'Tarih',
+      'Tür',
+      'Durum',
+      'Kategori',
+    ]);
+
+    for (var fatura in faturalar) {
+      sheetObject.appendRow([
+        fatura['id'],
+        fatura['company'],
+        fatura['amount'],
+        fatura['date'],
+        fatura['type'],
+        fatura['status'] == 'paid' ? 'Ödendi' : 'Bekliyor',
+        fatura['category'],
+      ]);
+    }
+
+    Directory? directory;
+    if (Platform.isAndroid || Platform.isIOS) {
+      directory = await getExternalStorageDirectory();
+    } else {
+      directory = await getApplicationDocumentsDirectory();
+    }
+
+    String filePath = "${directory!.path}/faturalar.xlsx";
+    File file =
+        File(filePath)
+          ..createSync(recursive: true)
+          ..writeAsBytesSync(excel.encode()!);
+
+    // Dosya konumunu kullanıcıya bildir (örn. Snackbar)
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text("Excel dosyası indirildi: $filePath")),
+    );
+  }
+
+  // ------------------------------------------------------
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
         backgroundColor: Color(0xFF2E7D6B),
-        title: Text('Geçmiş Faturalar'),
+        foregroundColor: Colors.white,
+        title: Text('GEÇMİŞ'),
         centerTitle: true,
         actions: [
+          IconButton(
+            icon: Icon(Icons.download_rounded),
+            tooltip: 'Excel’e Aktar',
+            onPressed: () async {
+              await exportToExcel(_filtrelenmisFaturalar);
+            },
+          ),
           IconButton(
             icon: Icon(Icons.filter_list),
             onPressed: () {
@@ -88,32 +198,48 @@ class _GecmisFaturalarSayfasiState extends State<GecmisFaturalarSayfasi> {
           ),
         ],
       ),
-      body: Column(
-        children: [
-          // Kategori Filtre Scroll
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            child: Row(
-              children: [
-                _buildKategoriChip('Tümü'),
-                _buildKategoriChip('İletişim'),
-                _buildKategoriChip('Enerji'),
-              ],
-            ),
-          ),
-
-          Expanded(
-            child: ListView.builder(
-              padding: EdgeInsets.all(16),
-              itemCount: _filtrelenmisFaturalar.length,
-              itemBuilder: (context, index) {
-                return _buildFaturaCard(_filtrelenmisFaturalar[index]);
-              },
-            ),
-          ),
-        ],
-      ),
+      body:
+          _isLoading
+              ? Center(
+                child: CircularProgressIndicator(color: Color(0xFF2E7D6B)),
+              )
+              : Column(
+                children: [
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    child: Row(
+                      children: [
+                        _buildKategoriChip('Tümü'),
+                        _buildKategoriChip('İletişim'),
+                        _buildKategoriChip('Enerji'),
+                      ],
+                    ),
+                  ),
+                  Expanded(
+                    child:
+                        _filtrelenmisFaturalar.isEmpty
+                            ? Center(
+                              child: Text(
+                                'Henüz fatura bulunmamaktadır.',
+                                style: TextStyle(
+                                  color: Colors.grey,
+                                  fontSize: 16,
+                                ),
+                              ),
+                            )
+                            : ListView.builder(
+                              padding: EdgeInsets.all(16),
+                              itemCount: _filtrelenmisFaturalar.length,
+                              itemBuilder: (context, index) {
+                                return _buildFaturaCard(
+                                  _filtrelenmisFaturalar[index],
+                                );
+                              },
+                            ),
+                  ),
+                ],
+              ),
     );
   }
 
@@ -145,28 +271,17 @@ class _GecmisFaturalarSayfasiState extends State<GecmisFaturalarSayfasi> {
         Navigator.push(
           context,
           MaterialPageRoute(
-            builder:
-                (context) => FaturaDetaySayfasi(
-                  faturaDetaylari: {
-                    'company': 'Türk Telekom',
-                    'amount': '245,80',
-                    'date': '15 Mayıs 2025',
-                    'type': 'İletişim',
-                    'status': 'paid',
-                    'category': 'İletişim',
-                  },
-                ),
+            builder: (context) => FaturaDetaySayfasi(faturaDetaylari: fatura),
           ),
         );
       },
-      borderRadius: BorderRadius.circular(12), // Ripple sınırı
+      borderRadius: BorderRadius.circular(12),
       child: Container(
         margin: EdgeInsets.only(bottom: 12),
         padding: EdgeInsets.all(16),
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.grey[200]!),
           boxShadow: [
             BoxShadow(
               color: Colors.black.withOpacity(0.05),

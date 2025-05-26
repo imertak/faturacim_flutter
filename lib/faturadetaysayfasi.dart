@@ -13,7 +13,7 @@ class FaturaDetaySayfasi extends StatelessWidget {
       backgroundColor: Colors.white,
       appBar: AppBar(
         backgroundColor: Color(0xFF2E7D6B),
-        title: Text('Fatura Detayları'),
+        title: Text('DETAY'),
         centerTitle: true,
         actions: [
           IconButton(

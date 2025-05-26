@@ -17,7 +17,8 @@ class _ProfilSayfasiState extends State<ProfilSayfasi> {
       backgroundColor: Colors.white,
       appBar: AppBar(
         backgroundColor: Color(0xFF2E7D6B),
-        title: Text('Profil'),
+        foregroundColor: Colors.white,
+        title: Text('PROFİLİM'),
         centerTitle: true,
         actions: [
           IconButton(icon: Icon(Icons.edit), onPressed: _profilDuzenle),

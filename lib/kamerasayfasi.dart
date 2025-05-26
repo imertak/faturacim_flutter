@@ -1,7 +1,11 @@
 import 'dart:io';
+import 'dart:typed_data';
+import 'package:faturacim/kamerasayfasi2.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
 import 'dart:convert';
 import 'package:path_provider/path_provider.dart';
 
@@ -43,6 +47,18 @@ class _KameraSayfasiState extends State<KameraSayfasi> {
     super.dispose();
   }
 
+  Future<String> getDesktopPath() async {
+    if (kIsWeb) {
+      // Web'de dosya yolu kullanılamaz
+      return '';
+    } else {
+      final Directory docsDir = await getApplicationDocumentsDirectory();
+      final String userDir = Directory(docsDir.path).parent.path;
+      final String desktopPath = '$userDir/Desktop/fatura';
+      return desktopPath;
+    }
+  }
+
   Future<void> _takePicture() async {
     if (_controller == null ||
         !_controller!.value.isInitialized ||
@@ -52,43 +68,349 @@ class _KameraSayfasiState extends State<KameraSayfasi> {
     setState(() => _isTakingPicture = true);
 
     try {
-      final Directory extDir = await getApplicationDocumentsDirectory();
-      final String dirPath = '${extDir.path}/Pictures';
-      await Directory(dirPath).create(recursive: true);
-      final String filePath =
-          '$dirPath/${DateTime.now().millisecondsSinceEpoch}.jpg';
-
+      print('Fotoğraf çekiliyor...');
       final XFile rawFile = await _controller!.takePicture();
-      await rawFile.saveTo(filePath);
+      print('Fotoğraf çekildi: ${rawFile.name}');
 
-      setState(() => _imagePath = filePath);
-
-      await _sendImageToServer(filePath);
-    } catch (e) {
+      if (kIsWeb) {
+        // Web'de fotoğrafı byte olarak al ve doğrudan gönder
+        Uint8List fileBytes = await rawFile.readAsBytes();
+        await _sendImageBytesToServer(fileBytes, rawFile.name);
+      } else {
+        // Mobil/Desktop için mevcut yöntemi koru
+        final String desktopPath = await getDesktopPath();
+        final String filePath =
+            '$desktopPath/${DateTime.now().millisecondsSinceEpoch}.jpg';
+        await rawFile.saveTo(filePath);
+        await _sendImageToServer(filePath);
+      }
+    } catch (e, stacktrace) {
       print('Fotoğraf alınırken hata: $e');
+      print('Stacktrace: $stacktrace');
+
+      // Hata durumu için örnek data
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder:
+              (context) => KameraSayfasi2(
+                imagePath: '', // web'de dosya yolu olmayacak
+                faturaData: {
+                  'sirket': 'Hata - Örnek Şirket',
+                  'tutar': '0,00 TL',
+                  'sonOdeme': DateTime.now()
+                      .add(Duration(days: 30))
+                      .toString()
+                      .substring(0, 10),
+                  'kategori': 'Diğer',
+                  'ocrText': 'Fatura işlenirken hata oluştu',
+                },
+              ),
+        ),
+      );
     } finally {
       setState(() => _isTakingPicture = false);
     }
   }
 
-  Future<void> _sendImageToServer(String imagePath) async {
+  // Web'de fotoğrafı doğrudan byte olarak upload eden fonksiyon
+  Future<void> _sendImageBytesToServer(
+    Uint8List fileBytes,
+    String fileName,
+  ) async {
     try {
-      final Uri url = Uri.parse('https://your-api-url.com/upload');
-      final bytes = await File(imagePath).readAsBytes();
-      final response = await http.post(
-        url,
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode({'image': base64Encode(bytes)}),
+      final Uri url = Uri.parse(
+        'http://invoicetojson-app-1748249131.eastus.azurecontainer.io:8000/api/process-file',
       );
 
+      // Dosya uzantısını kontrol et ve düzenle
+      String fileExtension = fileName.split('.').last.toLowerCase();
+      if (!['jpg', 'jpeg', 'png', 'bmp', 'webp'].contains(fileExtension)) {
+        fileExtension = 'jpg'; // Varsayılan olarak jpg yap
+        fileName = 'image.$fileExtension';
+      }
+
+      var request = http.MultipartRequest('POST', url);
+      request.headers['accept'] = 'application/json';
+
+      // Dosya boyutunu ve türünü kontrol et
+      print('Dosya Bayt Sayısı: ${fileBytes.length}');
+      print('Dosya Adı: $fileName');
+      print('Dosya Uzantısı: $fileExtension');
+
+      // Fotoğrafı multipart dosya olarak ekle (fromBytes ile)
+      var multipartFile = http.MultipartFile.fromBytes(
+        'file', // Sunucunun beklediği alan adı
+        fileBytes,
+        filename: fileName,
+        contentType: MediaType('image', fileExtension),
+      );
+      request.files.add(multipartFile);
+
+      // İlave hata ayıklama bilgileri
+      request.fields['filename'] = fileName;
+
+      final response = await request.send();
+      final responseBody = await response.stream.bytesToString();
+
+      print('Sunucu Yanıt Kodu: ${response.statusCode}');
+      print('Sunucu Yanıt Gövdesi: $responseBody');
+
       if (response.statusCode == 200) {
-        print('Fatura başarıyla işlendi.');
+        final Map<String, dynamic> apiResponse = json.decode(responseBody);
+
+        // Hata durumunu kontrol et
+        if (apiResponse['status'] == 'error') {
+          throw Exception(apiResponse['message']);
+        }
+
+        Map<String, dynamic> faturaData = _parseOCRResults(apiResponse);
+
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder:
+                (context) => KameraSayfasi2(
+                  imagePath: '', // Web'de dosya yolu yok
+                  faturaData: faturaData,
+                ),
+          ),
+        );
       } else {
-        print('Fatura işlenemedi: ${response.statusCode}');
+        throw Exception('Sunucu hatası: ${response.statusCode}');
+      }
+    } catch (e) {
+      print('Fatura gönderme hatası detayları: $e');
+
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder:
+              (context) => KameraSayfasi2(
+                imagePath: '',
+                faturaData: {
+                  'sirket': 'Bağlantı Hatası',
+                  'tutar': '0,00 TL',
+                  'sonOdeme': DateTime.now()
+                      .add(Duration(days: 30))
+                      .toString()
+                      .substring(0, 10),
+                  'kategori': 'Diğer',
+                  'ocrText': 'Dosya gönderme hatası: $e',
+                },
+              ),
+        ),
+      );
+    }
+  }
+
+  Future<void> _sendImageToServer(String imagePath) async {
+    try {
+      // Chrome'da çalıştığı için localhost kullan
+      final Uri url = Uri.parse(
+        'http://invoicetojson-app-1748249131.eastus.azurecontainer.io:8000/api/process-file',
+      );
+
+      var request = http.MultipartRequest('POST', url);
+      request.headers['accept'] = 'application/json';
+      request.headers['Content-Type'] = 'multipart/form-data';
+
+      // Dosyayı multipart olarak ekle
+      var file = await http.MultipartFile.fromPath('file', imagePath);
+      request.files.add(file);
+
+      final response = await request.send();
+      final responseBody = await response.stream.bytesToString();
+
+      if (response.statusCode == 200) {
+        print('Fatura başarıyla işlendi: $responseBody');
+
+        // API'den gelen response'u parse et
+        final Map<String, dynamic> apiResponse = json.decode(responseBody);
+
+        // OCR sonuçlarını parse et
+        Map<String, dynamic> faturaData = _parseOCRResults(apiResponse);
+
+        // KameraSayfasi2'ye yönlendir
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder:
+                (context) => KameraSayfasi2(
+                  imagePath: imagePath,
+                  faturaData: faturaData,
+                ),
+          ),
+        );
+      } else {
+        print('Fatura işlenemedi: ${response.statusCode} - $responseBody');
+
+        // Hata durumunda örnek datayla yönlendir
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder:
+                (context) => KameraSayfasi2(
+                  imagePath: imagePath,
+                  faturaData: {
+                    'sirket': 'İşleme Hatası',
+                    'tutar': '0,00 TL',
+                    'sonOdeme': DateTime.now()
+                        .add(Duration(days: 30))
+                        .toString()
+                        .substring(0, 10),
+                    'kategori': 'Diğer',
+                    'ocrText': 'Sunucu hatası: ${response.statusCode}',
+                  },
+                ),
+          ),
+        );
       }
     } catch (e) {
       print('Fatura gönderme hatası: $e');
+
+      // Hata durumunda örnek datayla yönlendir
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder:
+              (context) => KameraSayfasi2(
+                imagePath: imagePath,
+                faturaData: {
+                  'sirket': 'Bağlantı Hatası',
+                  'tutar': '0,00 TL',
+                  'sonOdeme': DateTime.now()
+                      .add(Duration(days: 30))
+                      .toString()
+                      .substring(0, 10),
+                  'kategori': 'Diğer',
+                  'ocrText': 'Bağlantı hatası: $e',
+                },
+              ),
+        ),
+      );
     }
+  }
+
+  Map<String, dynamic> _parseOCRResults(Map<String, dynamic> apiResponse) {
+    try {
+      // API response'undan results array'ini al
+      List<dynamic> results = apiResponse['results'] ?? [];
+
+      if (results.isNotEmpty) {
+        Map<String, dynamic> firstResult = results[0];
+        String ocrText = firstResult['ocr_text'] ?? '';
+
+        // OCR metninden fatura bilgilerini çıkar
+        Map<String, dynamic> extractedData = _extractInvoiceInfo(ocrText);
+
+        return {
+          'sirket': extractedData['sirket'] ?? 'Tanımlanamadı',
+          'tutar': extractedData['tutar'] ?? '0,00 TL',
+          'sonOdeme':
+              extractedData['sonOdeme'] ??
+              DateTime.now()
+                  .add(Duration(days: 30))
+                  .toString()
+                  .substring(0, 10),
+          'kategori': extractedData['kategori'] ?? 'Diğer',
+          'faturaNumarasi': extractedData['faturaNumarasi'] ?? 'N/A',
+          'ocrText': ocrText,
+          'imagePath': firstResult['image_path'] ?? '',
+          'processId': apiResponse['process_id'] ?? '',
+          'timestamp': apiResponse['timestamp'] ?? '',
+        };
+      }
+    } catch (e) {
+      print('OCR sonuçları parse edilirken hata: $e');
+    }
+
+    // Varsayılan değerler
+    return {
+      'sirket': 'Tanımlanamadı',
+      'tutar': '0,00 TL',
+      'sonOdeme': DateTime.now()
+          .add(Duration(days: 30))
+          .toString()
+          .substring(0, 10),
+      'kategori': 'Diğer',
+      'faturaNumarasi': 'N/A',
+      'ocrText': 'OCR metni alınamadı',
+    };
+  }
+
+  Map<String, dynamic> _extractInvoiceInfo(String ocrText) {
+    Map<String, dynamic> info = {};
+
+    // OCR metnini küçük harfe çevir ve satırlara ayır
+    String lowerText = ocrText.toLowerCase();
+    List<String> lines = ocrText.split('\n');
+
+    // Şirket adını bulmaya çalış (genellikle ilk satırlarda)
+    for (int i = 0; i < lines.length && i < 5; i++) {
+      if (lines[i].trim().isNotEmpty &&
+          !lines[i].toLowerCase().contains('fatura') &&
+          !lines[i].toLowerCase().contains('invoice') &&
+          !RegExp(r'\d+[.,]\d+').hasMatch(lines[i])) {
+        info['sirket'] = lines[i].trim();
+        break;
+      }
+    }
+
+    // Tutarı bulmaya çalış (₺, TL, tl içeren veya para formatındaki sayılar)
+    RegExp amountRegex = RegExp(
+      r'(\d+[.,]\d+)\s*(₺|tl|türk lirası)',
+      caseSensitive: false,
+    );
+    Match? amountMatch = amountRegex.firstMatch(lowerText);
+    if (amountMatch != null) {
+      String amount = amountMatch.group(1)!.replaceAll(',', '.');
+      info['tutar'] = '$amount TL';
+    } else {
+      // Alternatif: Sadece para formatındaki sayıları ara
+      RegExp numberRegex = RegExp(r'\d+[.,]\d{2}');
+      Iterable<Match> matches = numberRegex.allMatches(ocrText);
+      if (matches.isNotEmpty) {
+        String amount = matches.last.group(0)!.replaceAll(',', '.');
+        info['tutar'] = '$amount TL';
+      }
+    }
+
+    // Tarih bulmaya çalış
+    RegExp dateRegex = RegExp(r'\d{1,2}[./\-]\d{1,2}[./\-]\d{2,4}');
+    Match? dateMatch = dateRegex.firstMatch(ocrText);
+    if (dateMatch != null) {
+      info['sonOdeme'] = dateMatch.group(0);
+    }
+
+    // Kategori belirleme (OCR metnindeki anahtar kelimelere göre)
+    if (lowerText.contains('elektrik') || lowerText.contains('electric')) {
+      info['kategori'] = 'Elektrik';
+    } else if (lowerText.contains('su') || lowerText.contains('water')) {
+      info['kategori'] = 'Su';
+    } else if (lowerText.contains('doğalgaz') || lowerText.contains('gaz')) {
+      info['kategori'] = 'Doğalgaz';
+    } else if (lowerText.contains('telefon') ||
+        lowerText.contains('telekom') ||
+        lowerText.contains('iletişim')) {
+      info['kategori'] = 'İletişim';
+    } else if (lowerText.contains('internet')) {
+      info['kategori'] = 'İnternet';
+    } else {
+      info['kategori'] = 'Diğer';
+    }
+
+    // Fatura numarası bulmaya çalış
+    RegExp invoiceNumberRegex = RegExp(
+      r'(fatura|invoice)\s*(:|\s)\s*([A-Z0-9]+)',
+      caseSensitive: false,
+    );
+    Match? invoiceMatch = invoiceNumberRegex.firstMatch(ocrText);
+    if (invoiceMatch != null) {
+      info['faturaNumarasi'] = invoiceMatch.group(3);
+    }
+
+    return info;
   }
 
   Widget _buildCameraOverlay() {
@@ -118,14 +440,14 @@ class _KameraSayfasiState extends State<KameraSayfasi> {
     return Scaffold(
       backgroundColor: const Color(0xFFF5F5F5),
       appBar: AppBar(
-        backgroundColor: const Color(0xFF66B3A0),
+        backgroundColor: Color(0xFF2E7D6B),
         elevation: 0,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back, color: Colors.white),
           onPressed: () => Navigator.of(context).pop(),
         ),
         title: const Text(
-          'Fatura Tara',
+          'TARA',
           style: TextStyle(
             color: Colors.white,
             fontSize: 20,
