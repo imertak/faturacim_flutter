@@ -29,7 +29,7 @@ class _GecmisFaturalarSayfasiState extends State<GecmisFaturalarSayfasi> {
     try {
       final encodedEmail = Uri.encodeComponent(userEmail!);
       final url = Uri.parse(
-        'http://localhost:5202/api/invoice/user/$encodedEmail',
+        'http://10.121.6.93:5202/api/invoice/user/$encodedEmail',
       );
 
       final response = await http.get(url);

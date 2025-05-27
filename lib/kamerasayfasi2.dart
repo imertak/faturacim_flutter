@@ -211,11 +211,7 @@ class _KameraSayfasi2State extends State<KameraSayfasi2> {
   }
 
   Future<void> _uploadInvoice() async {
-    final url = Uri.parse(
-      kIsWeb
-          ? 'http://localhost:5202/api/Invoice'
-          : 'http://10.0.2.2:5202/api/Invoice',
-    );
+    final url = Uri.parse('http://10.121.6.93:5202/api/Invoice');
 
     final invoiceData = {
       "title": _faturaVerileri['sirket'] ?? "Fatura",

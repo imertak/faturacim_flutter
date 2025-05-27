@@ -73,16 +73,33 @@ class _KameraSayfasiState extends State<KameraSayfasi> {
       print('Fotoğraf çekildi: ${rawFile.name}');
 
       if (kIsWeb) {
-        // Web'de fotoğrafı byte olarak al ve doğrudan gönder
+        // Web'de fotoğrafı byte olarak al ve Cloudinary'ye yükle
         Uint8List fileBytes = await rawFile.readAsBytes();
         await _sendImageBytesToServer(fileBytes, rawFile.name);
       } else {
-        // Mobil/Desktop için mevcut yöntemi koru
-        final String desktopPath = await getDesktopPath();
+        // ─── DEĞİŞTİRİLMESİ GEREKEN KISIM BAŞLANGICI ───
+
+        // 1️⃣ Uygulama belgeler dizinini alıyoruz
+        final Directory docsDir = await getApplicationDocumentsDirectory();
+
+        // 2️⃣ Bu dizin altında 'faturalar' adlı bir klasör tanımlıyoruz
+        final String saveDirPath = '${docsDir.path}/faturalar';
+        final Directory saveDir = Directory(saveDirPath);
+
+        // 3️⃣ Klasör yoksa oluşturuyoruz
+        if (!await saveDir.exists()) {
+          await saveDir.create(recursive: true);
+        }
+
+        // 4️⃣ Dosya adını ve tam yolu belirleyip kaydediyoruz
         final String filePath =
-            '$desktopPath/${DateTime.now().millisecondsSinceEpoch}.jpg';
+            '$saveDirPath/${DateTime.now().millisecondsSinceEpoch}.jpg';
         await rawFile.saveTo(filePath);
+
+        // 5️⃣ Kaydettikten sonra sunucuya gönder
         await _sendImageToServer(filePath);
+
+        // ─── DEĞİŞTİRİLMESİ GEREKEN KISIM SONU ───
       }
     } catch (e, stacktrace) {
       print('Fotoğraf alınırken hata: $e');
@@ -119,6 +136,20 @@ class _KameraSayfasiState extends State<KameraSayfasi> {
     String fileName,
   ) async {
     try {
+      // ÖNCELİKLE CLOUDINARY'YE YÜKLEYELİM
+      print('🌐 Web platformunda Cloudinary yükleme başlıyor...');
+      String? cloudinaryUrl = await uploadToCloudinaryBytes(
+        fileBytes,
+        fileName,
+      );
+
+      if (cloudinaryUrl != null) {
+        print('✅ Cloudinary yükleme başarılı: $cloudinaryUrl');
+      } else {
+        print('❌ Cloudinary yükleme başarısız');
+      }
+
+      // SONRA API'YE GÖNDERELİM
       final Uri url = Uri.parse(
         'http://invoicetojson-app-1748249131.eastus.azurecontainer.io:8000/api/process-file',
       );
@@ -204,9 +235,100 @@ class _KameraSayfasiState extends State<KameraSayfasi> {
     }
   }
 
+  // WEB İÇİN YENİ CLOUDINARY FONKSİYONU (BYTES İLE)
+  Future<String?> uploadToCloudinaryBytes(
+    Uint8List fileBytes,
+    String fileName,
+  ) async {
+    try {
+      print('📤 Cloudinary yükleme başlatılıyor... (Web - Bytes)');
+
+      // Web için FormData kullanarak yükleme
+      final cloudinaryUrl = Uri.parse(
+        'https://api.cloudinary.com/v1_1/dtrqe9lua/image/upload',
+      );
+
+      // Dosya uzantısını kontrol et
+      String fileExtension = fileName.split('.').last.toLowerCase();
+      if (!['jpg', 'jpeg', 'png', 'bmp', 'webp'].contains(fileExtension)) {
+        fileExtension = 'jpg';
+        fileName = 'image.$fileExtension';
+      }
+
+      // Cloudinary için gerekli form verilerini hazırla
+      var formData = {
+        'upload_preset': 'unsigned_preset',
+        'file': base64Encode(fileBytes), // Base64 encode et
+      };
+
+      print('⏳ Cloudinary yanıt bekleniyor...');
+      var response = await http.post(cloudinaryUrl, body: formData);
+
+      print('📡 Cloudinary yanıt kodu: ${response.statusCode}');
+
+      if (response.statusCode == 200) {
+        var result = json.decode(response.body);
+        String cloudinaryImageUrl = result['secure_url'];
+        print('✅ Cloudinary yükleme başarılı: $cloudinaryImageUrl');
+        return cloudinaryImageUrl;
+      } else {
+        print('❌ Cloudinary yükleme başarısız: ${response.statusCode}');
+        print('Body: ${response.body}');
+        return null;
+      }
+    } catch (e) {
+      print('🛑 Cloudinary hatası: $e');
+      return null;
+    }
+  }
+
+  // DESKTOP/MOBİL İÇİN ESKİ CLOUDINARY FONKSİYONU (DOSYA YOLU İLE)
+  Future<String?> uploadToCloudinary(String imagePath) async {
+    try {
+      print('📤 Cloudinary yükleme başlatılıyor... (Desktop/Mobile - Path)');
+
+      final cloudinaryUrl = Uri.parse(
+        'https://api.cloudinary.com/v1_1/dtrqe9lua/image/upload',
+      );
+
+      var request = http.MultipartRequest('POST', cloudinaryUrl);
+      request.fields['upload_preset'] = 'unsigned_preset';
+      request.files.add(await http.MultipartFile.fromPath('file', imagePath));
+
+      print('⏳ Yanıt bekleniyor...');
+      var response = await request.send();
+
+      var responseBody = await response.stream.bytesToString();
+
+      if (response.statusCode == 200) {
+        var result = json.decode(responseBody);
+        String cloudinaryImageUrl = result['secure_url'];
+        print('✅ Cloudinary yükleme başarılı: $cloudinaryImageUrl');
+        return cloudinaryImageUrl;
+      } else {
+        print('❌ Cloudinary yükleme başarısız: ${response.statusCode}');
+        print('Body: $responseBody');
+        return null;
+      }
+    } catch (e) {
+      print('🛑 Cloudinary hatası: $e');
+      return null;
+    }
+  }
+
   Future<void> _sendImageToServer(String imagePath) async {
     try {
-      // Chrome'da çalıştığı için localhost kullan
+      // ÖNCELİKLE CLOUDINARY'YE YÜKLEYELİM
+      print('🖥️ Desktop/Mobile platformunda Cloudinary yükleme başlıyor...');
+      String? cloudinaryUrl = await uploadToCloudinary(imagePath);
+
+      if (cloudinaryUrl != null) {
+        print('✅ Cloudinary yükleme başarılı: $cloudinaryUrl');
+      } else {
+        print('❌ Cloudinary yükleme başarısız');
+      }
+
+      // SONRA API'YE GÖNDERELİM
       final Uri url = Uri.parse(
         'http://invoicetojson-app-1748249131.eastus.azurecontainer.io:8000/api/process-file',
       );

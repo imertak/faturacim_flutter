@@ -62,7 +62,7 @@ class _KategoriAnaliziSayfasiState extends State<KategoriAnaliziSayfasi> {
     try {
       // Gerçek API endpoint'inizi buraya yazın
       final url = Uri.parse(
-        'http://localhost:5202/api/invoice/user/$userEmail'
+        'http://10.121.6.93:5202/api/invoice/user/$userEmail'
         '?startDate=${startDate.toIso8601String().split("T")[0]}'
         '&endDate=${endDate.toIso8601String().split("T")[0]}',
       );

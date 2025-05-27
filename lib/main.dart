@@ -49,7 +49,7 @@ class _LoginScreenState extends State<LoginScreen> {
       _isLoading = true;
     });
 
-    final Uri url = Uri.parse('http://localhost:5202/api/Auth/login');
+    final Uri url = Uri.parse('http://10.121.6.93:5202/api/Auth/login');
 
     // Detaylı header ayarları
     final Map<String, String> headers = {
