@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/cupertino.dart';
 
 class ProfilDuzenleme extends StatefulWidget {
+  const ProfilDuzenleme({super.key});
+
   @override
   _ProfilDuzenlemeState createState() => _ProfilDuzenlemeState();
 }
@@ -10,13 +11,13 @@ class _ProfilDuzenlemeState extends State<ProfilDuzenleme> {
   final _formKey = GlobalKey<FormState>();
 
   // Kullanıcı bilgileri kontrolleri
-  TextEditingController _adSoyadController = TextEditingController(
+  final TextEditingController _adSoyadController = TextEditingController(
     text: 'Ayşe Yılmaz',
   );
-  TextEditingController _emailController = TextEditingController(
+  final TextEditingController _emailController = TextEditingController(
     text: 'ayse.yilmaz@email.com',
   );
-  TextEditingController _telefonController = TextEditingController(
+  final TextEditingController _telefonController = TextEditingController(
     text: '0555 123 45 67',
   );
 

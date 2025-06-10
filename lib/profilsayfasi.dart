@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 
 class ProfilSayfasi extends StatefulWidget {
+  const ProfilSayfasi({super.key});
+
   @override
   _ProfilSayfasiState createState() => _ProfilSayfasiState();
 }
@@ -70,7 +72,7 @@ class _ProfilSayfasiState extends State<ProfilSayfasi> {
                 baslik: 'Bildirimler',
                 widget: CupertinoSwitch(
                   value: _bildirimAyari,
-                  activeColor: Color(0xFF2E7D6B),
+                  activeTrackColor: Color(0xFF2E7D6B),
                   onChanged: (bool value) {
                     setState(() {
                       _bildirimAyari = value;
@@ -84,7 +86,7 @@ class _ProfilSayfasiState extends State<ProfilSayfasi> {
                 baslik: 'Karanlık Mod',
                 widget: CupertinoSwitch(
                   value: _karanlikMod,
-                  activeColor: Color(0xFF2E7D6B),
+                  activeTrackColor: Color(0xFF2E7D6B),
                   onChanged: (bool value) {
                     setState(() {
                       _karanlikMod = value;

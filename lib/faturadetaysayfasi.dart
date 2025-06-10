@@ -1,11 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 class FaturaDetaySayfasi extends StatelessWidget {
   final Map<String, dynamic> faturaDetaylari;
 
-  const FaturaDetaySayfasi({Key? key, required this.faturaDetaylari})
-    : super(key: key);
+  const FaturaDetaySayfasi({super.key, required this.faturaDetaylari});
 
   @override
   Widget build(BuildContext context) {

@@ -9,6 +9,8 @@ void main() {
 }
 
 class FaturaApp extends StatelessWidget {
+  const FaturaApp({super.key});
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -24,6 +26,8 @@ class FaturaApp extends StatelessWidget {
 }
 
 class LoginScreen extends StatefulWidget {
+  const LoginScreen({super.key});
+
   @override
   _LoginScreenState createState() => _LoginScreenState();
 }
@@ -43,13 +47,11 @@ class _LoginScreenState extends State<LoginScreen> {
         _message = 'E-posta ve şifre boş olamaz.';
       });
       return;
-    }
-
-    setState(() {
+    }    setState(() {
       _isLoading = true;
     });
 
-    final Uri url = Uri.parse('http://10.121.6.93:5202/api/Auth/login');
+    final Uri url = Uri.parse('${ApiConfig.baseUrl}${ApiConfig.authLogin}');
 
     // Detaylı header ayarları
     final Map<String, String> headers = {
@@ -59,25 +61,22 @@ class _LoginScreenState extends State<LoginScreen> {
       // 'Authorization': 'Bearer token',
     };
 
-    final Map<String, String> body = {'email': email, 'password': password};
-
-    try {
+    final Map<String, String> body = {'email': email, 'password': password};    try {
       final response = await http.post(
         url,
         headers: headers,
         body: jsonEncode(body), // Explicit JSON encode
-      );
+      ).timeout(Duration(seconds: 30)); // Timeout süresi arttırıldı
 
       print('Response Status Code: ${response.statusCode}');
       print('Response Body: ${response.body}');
 
       if (response.statusCode == 200) {
-        final Map<String, dynamic> responseData = jsonDecode(response.body);
-
-        if (responseData.containsKey('token') &&
+        final Map<String, dynamic> responseData = jsonDecode(response.body);        if (responseData.containsKey('token') &&
             responseData['token'] != null &&
             responseData['token'].toString().isNotEmpty) {
           userEmail = email;
+          authToken = responseData['token'].toString(); // Token'ı global değişkene kaydet
           setState(() {
             _message = 'Giriş başarılı!';
             _isLoading = false;
@@ -93,16 +92,21 @@ class _LoginScreenState extends State<LoginScreen> {
             _message = 'Geçersiz yanıt. Token bulunamadı.';
             _isLoading = false;
           });
-        }
-      } else {
+        }      } else {
         setState(() {
-          _message = 'Giriş başarısız. Hata kodu: ${response.statusCode}';
+          _message = 'Giriş başarısız. Hata kodu: ${response.statusCode}\nDetay: ${response.body}';
           _isLoading = false;
         });
       }
     } catch (error) {
       setState(() {
-        _message = 'Bağlantı hatası: $error';
+        if (error.toString().contains('TimeoutException')) {
+          _message = 'Bağlantı zaman aşımına uğradı. Sunucu erişilebilir değil.';
+        } else if (error.toString().contains('SocketException')) {
+          _message = 'Ağ bağlantısı hatası. İnternet bağlantınızı kontrol edin.';
+        } else {
+          _message = 'Bağlantı hatası: $error';
+        }
         _isLoading = false;
       });
       print('Login error details: $error');
@@ -233,7 +237,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       SizedBox(height: 24),
 
                       // Giriş butonu
-                      Container(
+                      SizedBox(
                         height: 56,
                         child: ElevatedButton(
                           onPressed:
@@ -538,7 +542,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           SizedBox(height: 30),
 
                           // Giriş Butonu
-                          Container(
+                          SizedBox(
                             width: double.infinity,
                             height: 56,
                             child: ElevatedButton(

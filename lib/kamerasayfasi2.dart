@@ -9,8 +9,7 @@ class KameraSayfasi2 extends StatefulWidget {
   final String imagePath;
   final Map<String, dynamic>? faturaData;
 
-  const KameraSayfasi2({Key? key, required this.imagePath, this.faturaData})
-    : super(key: key);
+  const KameraSayfasi2({super.key, required this.imagePath, this.faturaData});
 
   @override
   _KameraSayfasi2State createState() => _KameraSayfasi2State();
@@ -209,9 +208,8 @@ class _KameraSayfasi2State extends State<KameraSayfasi2> {
         )
         : null;
   }
-
   Future<void> _uploadInvoice() async {
-    final url = Uri.parse('http://10.121.6.93:5202/api/Invoice');
+    final url = Uri.parse('http://127.0.0.1:5202/api/Invoice');
 
     final invoiceData = {
       "title": _faturaVerileri['sirket'] ?? "Fatura",

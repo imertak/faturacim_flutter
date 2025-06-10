@@ -10,6 +10,8 @@ import 'package:http/http.dart' as http;
 import 'kamerasayfasi.dart';
 
 class Sayfa2 extends StatefulWidget {
+  const Sayfa2({super.key});
+
   @override
   _Sayfa2State createState() => _Sayfa2State();
 }
@@ -37,10 +39,8 @@ class _Sayfa2State extends State<Sayfa2> {
         59,
         59,
       ).add(const Duration(days: 1)); // bugüne kadar
-      final encodedEmail = Uri.encodeComponent(userEmail!);
-
-      final url = Uri.parse(
-        'http://10.121.6.93:5202/api/invoice/user/$encodedEmail'
+      final encodedEmail = Uri.encodeComponent(userEmail!);      final url = Uri.parse(
+        'http://127.0.0.1:5202/api/invoice/user/$encodedEmail'
         '?startDate=${startDate.toIso8601String().split("T")[0]}'
         '&endDate=${endDate.toIso8601String().split("T")[0]}',
       );
@@ -70,7 +70,7 @@ class _Sayfa2State extends State<Sayfa2> {
 
           isLoadingInvoices = false;
           monthlyTotal = _calculateMonthlyTotal(invoicesData);
-          monthlyTotalText = monthlyTotal.toStringAsFixed(2) + ' TL';
+          monthlyTotalText = '${monthlyTotal.toStringAsFixed(2)} TL';
         });
       } else {
         print('Fatura çekme hatası: ${response.statusCode}');
@@ -446,7 +446,7 @@ class _Sayfa2State extends State<Sayfa2> {
                             ),
                             SizedBox(height: 8),
                             Text(
-                              '${monthlyTotalText}',
+                              monthlyTotalText,
                               style: TextStyle(
                                 fontSize: 32,
                                 fontWeight: FontWeight.w700,
@@ -646,7 +646,7 @@ class _Sayfa2State extends State<Sayfa2> {
                     SizedBox(height: 12),
                     ...recentInvoices
                         .map((invoice) => _buildInvoiceCard(invoice))
-                        .toList(),
+                        ,
                   ],
                 ),
               ),
@@ -720,7 +720,7 @@ class _Sayfa2State extends State<Sayfa2> {
                       ),
                     ),
                     SizedBox(height: 16),
-                    ...economyNews.map((news) => _buildNewsCard(news)).toList(),
+                    ...economyNews.map((news) => _buildNewsCard(news)),
                   ],
                 ),
               ),
@@ -799,7 +799,7 @@ class _Sayfa2State extends State<Sayfa2> {
   ) {
     return GestureDetector(
       onTap: onTap,
-      child: Container(
+      child: SizedBox(
         width: 75,
         child: Column(
           children: [

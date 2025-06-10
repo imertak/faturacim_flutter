@@ -9,6 +9,8 @@ import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 
 class GecmisFaturalarSayfasi extends StatefulWidget {
+  const GecmisFaturalarSayfasi({super.key});
+
   @override
   _GecmisFaturalarSayfasiState createState() => _GecmisFaturalarSayfasiState();
 }
@@ -23,19 +25,49 @@ class _GecmisFaturalarSayfasiState extends State<GecmisFaturalarSayfasi> {
   void initState() {
     super.initState();
     _fetchFaturalar();
-  }
-
-  Future<void> _fetchFaturalar() async {
+  }  Future<void> _fetchFaturalar() async {
     try {
+      // Check if userEmail is set
+      print('UserEmail değeri: $userEmail');
+      
+      if (userEmail == null || userEmail!.isEmpty) {
+        print('HATA: userEmail null veya boş!');
+        setState(() {
+          _isLoading = false;
+        });
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Kullanıcı e-postası bulunamadı. Lütfen tekrar giriş yapın.'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
+        return;
+      }
+      
       final encodedEmail = Uri.encodeComponent(userEmail!);
       final url = Uri.parse(
-        'http://10.121.6.93:5202/api/invoice/user/$encodedEmail',
+        '${ApiConfig.baseUrl}${ApiConfig.invoiceUser}/$encodedEmail',
       );
 
-      final response = await http.get(url);
+      print('API çağrısı yapılıyor: $url'); // Debug için
+      print('AuthToken: ${authToken ?? "Token yok"}'); // Debug için
+
+      final response = await http.get(
+        url,
+        headers: {
+          'Content-Type': 'application/json',
+          if (authToken != null) 'Authorization': 'Bearer $authToken',
+        },
+      );
+
+      print('API yanıtı: ${response.statusCode}'); // Debug için
 
       if (response.statusCode == 200) {
         final List<dynamic> invoicesData = json.decode(response.body);
+        
+        print('Alınan fatura sayısı: ${invoicesData.length}'); // Debug için
 
         setState(() {
           tumFaturalar =
@@ -57,15 +89,45 @@ class _GecmisFaturalarSayfasiState extends State<GecmisFaturalarSayfasi> {
         });
       } else {
         print('Fatura çekme hatası: ${response.statusCode}');
+        print('Hata detayı: ${response.body}'); // Debug için
         setState(() {
           _isLoading = false;
         });
-      }
-    } catch (e) {
+        
+        // Kullanıcıya hata mesajı göster
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Faturalar yüklenirken hata oluştu: ${response.statusCode}'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }    } catch (e) {
       print('Fatura çekme hatası: $e');
+      print('Hata türü: ${e.runtimeType}');
+      
+      // Bağlantı testi yap
+      try {
+        final testResponse = await http.get(Uri.parse('https://www.google.com'));
+        print('Google bağlantı testi: ${testResponse.statusCode}');
+      } catch (testError) {
+        print('İnternet bağlantısı yok: $testError');
+      }
+      
       setState(() {
         _isLoading = false;
       });
+      
+      // Kullanıcıya hata mesajı göster
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Bağlantı hatası: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
 
@@ -150,20 +212,24 @@ class _GecmisFaturalarSayfasiState extends State<GecmisFaturalarSayfasi> {
         fatura['status'] == 'paid' ? 'Ödendi' : 'Bekliyor',
         fatura['category'],
       ]);
-    }
-
-    Directory? directory;
+    }    Directory? directory;
     if (Platform.isAndroid || Platform.isIOS) {
       directory = await getExternalStorageDirectory();
     } else {
       directory = await getApplicationDocumentsDirectory();
     }
 
-    String filePath = "${directory!.path}/faturalar.xlsx";
-    File file =
-        File(filePath)
-          ..createSync(recursive: true)
-          ..writeAsBytesSync(excel.encode()!);
+    if (directory == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Dosya dizini bulunamadı!")),
+      );
+      return;
+    }
+
+    String filePath = "${directory.path}/faturalar.xlsx";
+    File(filePath)
+      ..createSync(recursive: true)
+      ..writeAsBytesSync(excel.encode()!);
 
     // Dosya konumunu kullanıcıya bildir (örn. Snackbar)
     ScaffoldMessenger.of(context).showSnackBar(
