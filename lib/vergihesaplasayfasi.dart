@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 class VergiHesaplaSayfasi extends StatefulWidget {
+  const VergiHesaplaSayfasi({super.key});
+
   @override
   _VergiHesaplaSayfasiState createState() => _VergiHesaplaSayfasiState();
 }
@@ -216,7 +217,7 @@ class _VergiHesaplaSayfasiState extends State<VergiHesaplaSayfasi> {
 
               // Vergi tutarı
               _buildResultCard(
-                'Vergi Tutarı (${selectedTaxType})',
+                'Vergi Tutarı ($selectedTaxType)',
                 '${calculatedTax.toStringAsFixed(2)} TL',
                 Colors.orange,
                 Icons.receipt,

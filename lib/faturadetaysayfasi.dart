@@ -1,11 +1,13 @@
+import 'dart:io';
+
+import 'package:flutter/foundation.dart' show kIsWeb;
+
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 class FaturaDetaySayfasi extends StatelessWidget {
   final Map<String, dynamic> faturaDetaylari;
 
-  const FaturaDetaySayfasi({Key? key, required this.faturaDetaylari})
-    : super(key: key);
+  const FaturaDetaySayfasi({super.key, required this.faturaDetaylari});
 
   @override
   Widget build(BuildContext context) {
@@ -61,31 +63,27 @@ class FaturaDetaySayfasi extends StatelessWidget {
                 'Toplam Tutar',
                 '${faturaDetaylari['amount']} TL',
               ),
-              _buildOdemeSatiri(
-                'Ödeme Durumu',
-                faturaDetaylari['status'] == 'paid' ? 'Ödendi' : 'Bekliyor',
-              ),
+              _buildOdemeSatiri('Ödeme Durumu', faturaDetaylari['status']),
 
               SizedBox(height: 30),
 
-              // Fatura Görüntüsü
+              // Fatura Görüntüsü - Düzeltildi
               Center(
                 child: Container(
                   width: double.infinity,
                   height: 300,
                   decoration: BoxDecoration(
-                    color: Colors.grey[100],
                     borderRadius: BorderRadius.circular(15),
                     border: Border.all(color: Colors.grey[300]!),
-                    image: DecorationImage(
-                      image: NetworkImage(
-                        'https://via.placeholder.com/400x600.png?text=Fatura+Görüntüsü',
-                      ),
-                      fit: BoxFit.cover,
-                    ),
                   ),
                   child: Stack(
                     children: [
+                      // Fatura görselini göster
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(15),
+                        child: _buildFaturaGorseli(),
+                      ),
+                      // Büyütme butonu
                       Positioned(
                         bottom: 10,
                         right: 10,
@@ -204,7 +202,7 @@ class FaturaDetaySayfasi extends StatelessWidget {
               borderRadius: BorderRadius.circular(10),
             ),
             child: Text(
-              faturaDetaylari['status'] == 'paid' ? 'Ödendi' : 'Bekliyor',
+              faturaDetaylari['status'],
               style: TextStyle(
                 color:
                     faturaDetaylari['status'] == 'paid'
@@ -269,22 +267,145 @@ class FaturaDetaySayfasi extends StatelessWidget {
     );
   }
 
+  // Platform bazlı görsel yükleme metodu - Geliştirildi
+  Widget _buildFaturaGorseli() {
+    final imagePath = faturaDetaylari['imagePath'];
+    print("Image gösterilecek path: |$imagePath|"); // BURADA!
+
+    if (imagePath == null || imagePath.isEmpty) {
+      return _buildPlaceholderImage();
+    }
+
+    try {
+      if (kIsWeb) {
+        // Web için network image
+        return Image.network(
+          imagePath,
+          width: double.infinity,
+          height: 300,
+          fit: BoxFit.cover,
+          errorBuilder: (context, error, stackTrace) {
+            print('Network image error: $error');
+            return _buildPlaceholderImage();
+          },
+        );
+      } else {
+        // Mobil platformlar için file image
+        final file = File(imagePath);
+
+        // Dosya varlığını kontrol et
+        if (!file.existsSync()) {
+          print('File does not exist: $imagePath');
+          return _buildPlaceholderImage();
+        }
+
+        return Image.file(
+          file,
+          width: double.infinity,
+          height: 300,
+          fit: BoxFit.cover,
+          errorBuilder: (context, error, stackTrace) {
+            print('File image error: $error');
+            return _buildPlaceholderImage();
+          },
+        );
+      }
+    } catch (e) {
+      print('Image loading error: $e');
+      return _buildPlaceholderImage();
+    }
+  }
+
+  // Placeholder görsel
+  Widget _buildPlaceholderImage() {
+    return Container(
+      width: double.infinity,
+      height: 300,
+      decoration: BoxDecoration(
+        color: Colors.grey[100],
+        borderRadius: BorderRadius.circular(15),
+        border: Border.all(color: Colors.grey[300]!),
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.image_not_supported, color: Colors.grey[500], size: 50),
+          SizedBox(height: 10),
+          Text(
+            'Fatura görseli yüklenemiyor',
+            style: TextStyle(color: Colors.grey[600], fontSize: 14),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Tam ekran görsel gösterme metodu - Geliştirildi
   void _showFullScreenFatura(BuildContext context) {
+    final imagePath = faturaDetaylari['imagePath'];
+
+    if (imagePath == null || imagePath.isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Fatura görseli bulunamadı')));
+      return;
+    }
+
+    // Mobil platformlarda dosya varlığını kontrol et
+    if (!kIsWeb) {
+      final file = File(imagePath);
+      if (!file.existsSync()) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Fatura görseli dosyası bulunamadı')),
+        );
+        return;
+      }
+    }
+
     showDialog(
       context: context,
       builder:
           (context) => Dialog(
-            child: Container(
-              width: double.infinity,
-              height: 600,
-              decoration: BoxDecoration(
-                image: DecorationImage(
-                  image: NetworkImage(
-                    'https://via.placeholder.com/400x600.png?text=Fatura+Görüntüsü',
-                  ),
-                  fit: BoxFit.contain,
+            backgroundColor: Colors.black,
+            child: Stack(
+              children: [
+                Center(
+                  child:
+                      kIsWeb
+                          ? Image.network(
+                            imagePath,
+                            fit: BoxFit.contain,
+                            errorBuilder: (context, error, stackTrace) {
+                              return Center(
+                                child: Text(
+                                  'Görsel yüklenemiyor',
+                                  style: TextStyle(color: Colors.white),
+                                ),
+                              );
+                            },
+                          )
+                          : Image.file(
+                            File(imagePath),
+                            fit: BoxFit.contain,
+                            errorBuilder: (context, error, stackTrace) {
+                              return Center(
+                                child: Text(
+                                  'Görsel yüklenemiyor',
+                                  style: TextStyle(color: Colors.white),
+                                ),
+                              );
+                            },
+                          ),
                 ),
-              ),
+                Positioned(
+                  top: 40,
+                  right: 20,
+                  child: IconButton(
+                    onPressed: () => Navigator.pop(context),
+                    icon: Icon(Icons.close, color: Colors.white, size: 30),
+                  ),
+                ),
+              ],
             ),
           ),
     );
@@ -302,22 +423,19 @@ class FaturaDetaySayfasi extends StatelessWidget {
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(context),
-                style: ElevatedButton.styleFrom(
-                  foregroundColor: Colors.black, // Yazı (ikon vs.) rengi
-                ),
+                style: TextButton.styleFrom(foregroundColor: Colors.black),
                 child: Text('İptal'),
               ),
               ElevatedButton(
                 onPressed: () {
-                  // Ödeme işlemi
                   Navigator.pop(context);
                   ScaffoldMessenger.of(
                     context,
                   ).showSnackBar(SnackBar(content: Text('Ödeme Başarılı')));
                 },
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: Color(0xFF2E7D6B), // Butonun arka plan rengi
-                  foregroundColor: Colors.white, // Yazı (ikon vs.) rengi
+                  backgroundColor: Color(0xFF2E7D6B),
+                  foregroundColor: Colors.white,
                 ),
                 child: Text('Öde'),
               ),
@@ -327,7 +445,7 @@ class FaturaDetaySayfasi extends StatelessWidget {
   }
 }
 
-// Kullanım Örneği
+// Kullanım Örneği - imagePath parametresi eklendi
 // Navigator.push(
 //   context, 
 //   MaterialPageRoute(
@@ -338,7 +456,8 @@ class FaturaDetaySayfasi extends StatelessWidget {
 //         'date': '15 Mayıs 2025',
 //         'type': 'İletişim',
 //         'status': 'paid',
-//         'category': 'İletişim'
+//         'category': 'İletişim',
+//         'imagePath': '/data/user/0/com.example.flutter_application_1/app_flutter/faturalar/1749997652944.jpg'
 //       }
 //     )
 //   )

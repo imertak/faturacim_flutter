@@ -10,6 +10,8 @@ import 'dart:convert';
 import 'package:path_provider/path_provider.dart';
 
 class KameraSayfasi extends StatefulWidget {
+  const KameraSayfasi({super.key});
+
   @override
   _KameraSayfasiState createState() => _KameraSayfasiState();
 }
@@ -17,7 +19,7 @@ class KameraSayfasi extends StatefulWidget {
 class _KameraSayfasiState extends State<KameraSayfasi> {
   CameraController? _controller;
   List<CameraDescription>? _cameras;
-  String _imagePath = '';
+  final String _imagePath = '';
   bool _isTakingPicture = false;
 
   @override
@@ -59,11 +61,38 @@ class _KameraSayfasiState extends State<KameraSayfasi> {
     }
   }
 
+  Future<String> getAccessibleStoragePath() async {
+    if (kIsWeb) {
+      return '';
+    } else {
+      Directory? extDir =
+          await getExternalStorageDirectory(); // Android için daha görünür
+      if (extDir != null) {
+        final String invoiceDir = '${extDir.path}/Faturalar';
+        final Directory dir = Directory(invoiceDir);
+        if (!await dir.exists()) {
+          await dir.create(recursive: true);
+        }
+        return invoiceDir;
+      } else {
+        // fallback
+        final Directory docsDir = await getApplicationDocumentsDirectory();
+        final String fallbackDir = '${docsDir.path}/faturalar';
+        final Directory fallback = Directory(fallbackDir);
+        if (!await fallback.exists()) {
+          await fallback.create(recursive: true);
+        }
+        return fallbackDir;
+      }
+    }
+  }
+
   Future<void> _takePicture() async {
     if (_controller == null ||
         !_controller!.value.isInitialized ||
-        _isTakingPicture)
+        _isTakingPicture) {
       return;
+    }
 
     setState(() => _isTakingPicture = true);
 
@@ -80,10 +109,8 @@ class _KameraSayfasiState extends State<KameraSayfasi> {
         // ─── DEĞİŞTİRİLMESİ GEREKEN KISIM BAŞLANGICI ───
 
         // 1️⃣ Uygulama belgeler dizinini alıyoruz
-        final Directory docsDir = await getApplicationDocumentsDirectory();
+        final String saveDirPath = await getAccessibleStoragePath();
 
-        // 2️⃣ Bu dizin altında 'faturalar' adlı bir klasör tanımlıyoruz
-        final String saveDirPath = '${docsDir.path}/faturalar';
         final Directory saveDir = Directory(saveDirPath);
 
         // 3️⃣ Klasör yoksa oluşturuyoruz
@@ -464,75 +491,522 @@ class _KameraSayfasiState extends State<KameraSayfasi> {
   Map<String, dynamic> _extractInvoiceInfo(String ocrText) {
     Map<String, dynamic> info = {};
 
-    // OCR metnini küçük harfe çevir ve satırlara ayır
-    String lowerText = ocrText.toLowerCase();
-    List<String> lines = ocrText.split('\n');
+    try {
+      // 1. Toplam tutarı çıkar (öncelik sırasına göre)
+      String totalAmount = _extractTotalAmount(ocrText);
 
-    // Şirket adını bulmaya çalış (genellikle ilk satırlarda)
-    for (int i = 0; i < lines.length && i < 5; i++) {
-      if (lines[i].trim().isNotEmpty &&
-          !lines[i].toLowerCase().contains('fatura') &&
-          !lines[i].toLowerCase().contains('invoice') &&
-          !RegExp(r'\d+[.,]\d+').hasMatch(lines[i])) {
-        info['sirket'] = lines[i].trim();
-        break;
-      }
-    }
+      // 2. Menu itemlarını çıkar
+      List<Map<String, String>> menuItems = _extractMenuItems(ocrText);
 
-    // Tutarı bulmaya çalış (₺, TL, tl içeren veya para formatındaki sayılar)
-    RegExp amountRegex = RegExp(
-      r'(\d+[.,]\d+)\s*(₺|tl|türk lirası)',
-      caseSensitive: false,
-    );
-    Match? amountMatch = amountRegex.firstMatch(lowerText);
-    if (amountMatch != null) {
-      String amount = amountMatch.group(1)!.replaceAll(',', '.');
-      info['tutar'] = '$amount TL';
-    } else {
-      // Alternatif: Sadece para formatındaki sayıları ara
-      RegExp numberRegex = RegExp(r'\d+[.,]\d{2}');
-      Iterable<Match> matches = numberRegex.allMatches(ocrText);
-      if (matches.isNotEmpty) {
-        String amount = matches.last.group(0)!.replaceAll(',', '.');
-        info['tutar'] = '$amount TL';
-      }
-    }
+      // 3. Ödeme bilgilerini çıkar
+      Map<String, String> paymentInfo = _extractPaymentInfo(ocrText);
 
-    // Tarih bulmaya çalış
-    RegExp dateRegex = RegExp(r'\d{1,2}[./\-]\d{1,2}[./\-]\d{2,4}');
-    Match? dateMatch = dateRegex.firstMatch(ocrText);
-    if (dateMatch != null) {
-      info['sonOdeme'] = dateMatch.group(0);
-    }
+      // 4. Şirket/İşletme adını belirle
+      String companyName = _determineBusinessName(menuItems, ocrText);
 
-    // Kategori belirleme (OCR metnindeki anahtar kelimelere göre)
-    if (lowerText.contains('elektrik') || lowerText.contains('electric')) {
-      info['kategori'] = 'Elektrik';
-    } else if (lowerText.contains('su') || lowerText.contains('water')) {
-      info['kategori'] = 'Su';
-    } else if (lowerText.contains('doğalgaz') || lowerText.contains('gaz')) {
-      info['kategori'] = 'Doğalgaz';
-    } else if (lowerText.contains('telefon') ||
-        lowerText.contains('telekom') ||
-        lowerText.contains('iletişim')) {
-      info['kategori'] = 'İletişim';
-    } else if (lowerText.contains('internet')) {
-      info['kategori'] = 'İnternet';
-    } else {
-      info['kategori'] = 'Diğer';
-    }
+      // 5. Kategori belirle
+      String category = _determineBusinessCategory(menuItems, companyName);
 
-    // Fatura numarası bulmaya çalış
-    RegExp invoiceNumberRegex = RegExp(
-      r'(fatura|invoice)\s*(:|\s)\s*([A-Z0-9]+)',
-      caseSensitive: false,
-    );
-    Match? invoiceMatch = invoiceNumberRegex.firstMatch(ocrText);
-    if (invoiceMatch != null) {
-      info['faturaNumarasi'] = invoiceMatch.group(3);
+      // 6. Fatura numarası oluştur
+      String invoiceNumber = _generateInvoiceNumber();
+
+      // 7. Son ödeme tarihi
+      String dueDate = _calculateDueDate();
+
+      info['sirket'] = companyName;
+      info['tutar'] = totalAmount;
+      info['kategori'] = category;
+      info['faturaNumarasi'] = invoiceNumber;
+      info['sonOdeme'] = dueDate;
+
+      // Debug için ek bilgiler
+      info['_menuItemCount'] = menuItems.length;
+      info['_paymentMethod'] = paymentInfo['method'] ?? 'unknown';
+    } catch (e) {
+      print('Invoice info extraction error: $e');
     }
 
     return info;
+  }
+
+  String _extractTotalAmount(String ocrText) {
+    try {
+      // Öncelik 1: <s_total_price> - Ana toplam
+      RegExp totalPriceRegex = RegExp(
+        r'<s_total_price>\s*([\d,.\s]+)\s*</s_total_price>',
+      );
+      Match? totalMatch = totalPriceRegex.firstMatch(ocrText);
+
+      if (totalMatch != null) {
+        String amount = totalMatch.group(1)?.trim() ?? '';
+        String formattedAmount = _formatAmount(amount);
+        if (formattedAmount != '0,00 TL') {
+          return formattedAmount;
+        }
+      }
+
+      // Öncelik 2: <s_subtotal_price> - Alt toplam
+      RegExp subTotalRegex = RegExp(
+        r'<s_subtotal_price>\s*([\d,.\s]+)\s*</s_subtotal_price>',
+      );
+      Match? subTotalMatch = subTotalRegex.firstMatch(ocrText);
+
+      if (subTotalMatch != null) {
+        String amount = subTotalMatch.group(1)?.trim() ?? '';
+        String formattedAmount = _formatAmount(amount);
+        if (formattedAmount != '0,00 TL') {
+          return formattedAmount;
+        }
+      }
+
+      // Öncelik 3: <s_cashprice> - Nakit ödeme
+      RegExp cashPriceRegex = RegExp(
+        r'<s_cashprice>\s*([\d,.\s]+)\s*</s_cashprice>',
+      );
+      Match? cashMatch = cashPriceRegex.firstMatch(ocrText);
+
+      if (cashMatch != null) {
+        String amount = cashMatch.group(1)?.trim() ?? '';
+        String formattedAmount = _formatAmount(amount);
+        if (formattedAmount != '0,00 TL') {
+          return formattedAmount;
+        }
+      }
+
+      // Öncelik 4: <s_creditcardprice> - Kredi kartı ödeme
+      RegExp creditCardRegex = RegExp(
+        r'<s_creditcardprice>\s*([\d,.\s]+)\s*</s_creditcardprice>',
+      );
+      Match? creditMatch = creditCardRegex.firstMatch(ocrText);
+
+      if (creditMatch != null) {
+        String amount = creditMatch.group(1)?.trim() ?? '';
+        String formattedAmount = _formatAmount(amount);
+        if (formattedAmount != '0,00 TL') {
+          return formattedAmount;
+        }
+      }
+
+      // Öncelik 5: Menu itemlarının fiyatlarını topla
+      List<Map<String, String>> menuItems = _extractMenuItems(ocrText);
+      double totalFromItems = 0;
+
+      for (Map<String, String> item in menuItems) {
+        String? price = item['price'];
+        if (price != null) {
+          double? itemPrice = _parseAmount(price);
+          if (itemPrice != null) {
+            totalFromItems += itemPrice;
+          }
+        }
+      }
+
+      if (totalFromItems > 0) {
+        return _formatAmountFromDouble(totalFromItems);
+      }
+    } catch (e) {
+      print('Total amount extraction error: $e');
+    }
+
+    return '0,00 TL';
+  }
+
+  List<Map<String, String>> _extractMenuItems(String ocrText) {
+    List<Map<String, String>> items = [];
+
+    try {
+      // <s_menu> bloğunu bul
+      RegExp menuRegex = RegExp(r'<s_menu>(.*?)</s_menu>', dotAll: true);
+      Match? menuMatch = menuRegex.firstMatch(ocrText);
+
+      if (menuMatch != null) {
+        String menuContent = menuMatch.group(1) ?? '';
+
+        // <sep/> ile ayrılmış itemları ayır
+        List<String> itemBlocks = menuContent.split('<sep/>');
+
+        for (String block in itemBlocks) {
+          if (block.trim().isEmpty) continue;
+
+          Map<String, String> item = {};
+
+          // Ürün adını çıkar
+          RegExp nameRegex = RegExp(r'<s_nm>\s*(.*?)\s*</s_nm>');
+          Match? nameMatch = nameRegex.firstMatch(block);
+          if (nameMatch != null) {
+            String name = nameMatch.group(1)?.trim() ?? '';
+            if (name.isNotEmpty) {
+              item['name'] = name;
+            }
+          }
+
+          // Adet bilgisini çıkar
+          RegExp countRegex = RegExp(r'<s_cnt>\s*(.*?)\s*</s_cnt>');
+          Match? countMatch = countRegex.firstMatch(block);
+          if (countMatch != null) {
+            String count = countMatch.group(1)?.trim() ?? '';
+            item['count'] = count;
+          }
+
+          // Fiyat bilgisini çıkar
+          RegExp priceRegex = RegExp(r'<s_price>\s*(.*?)\s*</s_price>');
+          Match? priceMatch = priceRegex.firstMatch(block);
+          if (priceMatch != null) {
+            String price = priceMatch.group(1)?.trim() ?? '';
+            item['price'] = price;
+          }
+
+          // Birim fiyat varsa çıkar
+          RegExp unitPriceRegex = RegExp(
+            r'<s_unitprice>\s*(.*?)\s*</s_unitprice>',
+          );
+          Match? unitPriceMatch = unitPriceRegex.firstMatch(block);
+          if (unitPriceMatch != null) {
+            String unitPrice = unitPriceMatch.group(1)?.trim() ?? '';
+            item['unitPrice'] = unitPrice;
+          }
+
+          // Alt bilgi varsa çıkar (=*MEDIUM*= gibi)
+          RegExp subInfoRegex = RegExp(
+            r'<s_sub>\s*<s_nm>\s*(.*?)\s*</s_nm>\s*</s_sub>',
+          );
+          Match? subInfoMatch = subInfoRegex.firstMatch(block);
+          if (subInfoMatch != null) {
+            String subInfo = subInfoMatch.group(1)?.trim() ?? '';
+            item['subInfo'] = subInfo;
+          }
+
+          // En az ürün adı varsa listeye ekle
+          if (item.containsKey('name') && item['name']!.isNotEmpty) {
+            items.add(item);
+          }
+        }
+      }
+    } catch (e) {
+      print('Menu items extraction error: $e');
+    }
+
+    return items;
+  }
+
+  Map<String, String> _extractPaymentInfo(String ocrText) {
+    Map<String, String> paymentInfo = {};
+
+    try {
+      // Nakit ödeme kontrolü
+      RegExp cashRegex = RegExp(
+        r'<s_cashprice>\s*([\d,.\s]+)\s*</s_cashprice>',
+      );
+      if (cashRegex.hasMatch(ocrText)) {
+        paymentInfo['method'] = 'cash';
+
+        // Para üstü varsa
+        RegExp changeRegex = RegExp(
+          r'<s_changeprice>\s*([\d,.\s]+)\s*</s_changeprice>',
+        );
+        Match? changeMatch = changeRegex.firstMatch(ocrText);
+        if (changeMatch != null) {
+          paymentInfo['change'] = changeMatch.group(1)?.trim() ?? '';
+        }
+      }
+
+      // Kredi kartı ödeme kontrolü
+      RegExp creditCardRegex = RegExp(
+        r'<s_creditcardprice>\s*([\d,.\s]+)\s*</s_creditcardprice>',
+      );
+      if (creditCardRegex.hasMatch(ocrText)) {
+        paymentInfo['method'] = 'credit_card';
+      }
+
+      // Servis ücreti
+      RegExp serviceRegex = RegExp(
+        r'<s_service_price>\s*([\d,.\s]+)\s*</s_service_price>',
+      );
+      Match? serviceMatch = serviceRegex.firstMatch(ocrText);
+      if (serviceMatch != null) {
+        paymentInfo['service'] = serviceMatch.group(1)?.trim() ?? '';
+      }
+
+      // Vergi
+      RegExp taxRegex = RegExp(r'<s_tax_price>\s*([\d,.\s]+)\s*</s_tax_price>');
+      Match? taxMatch = taxRegex.firstMatch(ocrText);
+      if (taxMatch != null) {
+        paymentInfo['tax'] = taxMatch.group(1)?.trim() ?? '';
+      }
+    } catch (e) {
+      print('Payment info extraction error: $e');
+    }
+
+    return paymentInfo;
+  }
+
+  String _determineBusinessName(
+    List<Map<String, String>> menuItems,
+    String ocrText,
+  ) {
+    try {
+      if (menuItems.isEmpty) return 'İşletme';
+
+      // Menu item isimlerinden işletme türünü analiz et
+      List<String> itemNames =
+          menuItems.map((item) => item['name'] ?? '').toList();
+      String allItems = itemNames.join(' ').toLowerCase();
+
+      // Spesifik marka/restoran isimleri
+      if (allItems.contains('dumdum')) {
+        return 'DumDum Tea';
+      }
+
+      // Japonca/Asya terimleri (ocha, wagyu, harami)
+      if (allItems.contains('ocha') ||
+          allItems.contains('wagyu') ||
+          allItems.contains('harami') ||
+          allItems.contains('jyo')) {
+        return 'Japon Restoranı';
+      }
+
+      // Endonezya mutfağı (ikan, cumi, lumpia)
+      if (allItems.contains('ikan') ||
+          allItems.contains('cumi') ||
+          allItems.contains('lumpia') ||
+          allItems.contains('pocai')) {
+        return 'Endonezya Restoranı';
+      }
+
+      // Thai mutfağı
+      if (allItems.contains('thai')) {
+        return 'Thai Restoranı';
+      }
+
+      // Kahve/çay evi
+      if (allItems.contains('tea') ||
+          allItems.contains('coffee') ||
+          allItems.contains('iced') &&
+              (allItems.contains('tea') || allItems.contains('green'))) {
+        return 'Kafe/Çay Evi';
+      }
+
+      // Pastane/bakery
+      if (allItems.contains('cream') && allItems.contains('cheese') ||
+          allItems.contains('almond')) {
+        return 'Pastane';
+      }
+
+      // Et restoranı
+      if (allItems.contains('wagyu') ||
+          allItems.contains('steak') ||
+          allItems.contains('sirloin') ||
+          allItems.contains('beef')) {
+        return 'Et Restoranı';
+      }
+
+      // Deniz ürünleri
+      if (allItems.contains('ikan') ||
+          allItems.contains('cumi') ||
+          allItems.contains('fish') ||
+          allItems.contains('seafood')) {
+        return 'Deniz Ürünleri Restoranı';
+      }
+
+      // Genel restoran/cafe
+      if (itemNames.length > 1) {
+        return 'Restoran/Kafe';
+      }
+
+      return 'İşletme';
+    } catch (e) {
+      print('Business name determination error: $e');
+      return 'İşletme';
+    }
+  }
+
+  String _determineBusinessCategory(
+    List<Map<String, String>> menuItems,
+    String businessName,
+  ) {
+    try {
+      String lowerBusinessName = businessName.toLowerCase();
+
+      // İşletme adından kategori belirle
+      if (lowerBusinessName.contains('kafe') ||
+          lowerBusinessName.contains('çay') ||
+          lowerBusinessName.contains('coffee') ||
+          lowerBusinessName.contains('tea')) {
+        return 'Kafe/Bar';
+      }
+
+      if (lowerBusinessName.contains('restoran') ||
+          lowerBusinessName.contains('restaurant')) {
+        return 'Restoran';
+      }
+
+      if (lowerBusinessName.contains('pastane') ||
+          lowerBusinessName.contains('bakery') ||
+          lowerBusinessName.contains('fırın')) {
+        return 'Gıda/Market';
+      }
+
+      // Menu itemlarından kategori belirle
+      if (menuItems.isNotEmpty) {
+        List<String> itemNames =
+            menuItems.map((item) => item['name'] ?? '').toList();
+        String allItems = itemNames.join(' ').toLowerCase();
+
+        // Yemek/içecek kategorileri
+        bool hasFood =
+            allItems.contains('rice') ||
+            allItems.contains('steak') ||
+            allItems.contains('salad') ||
+            allItems.contains('soup') ||
+            allItems.contains('ikan') ||
+            allItems.contains('cumi') ||
+            allItems.contains('lumpia') ||
+            allItems.contains('nasi');
+
+        bool hasDrinks =
+            allItems.contains('tea') ||
+            allItems.contains('coffee') ||
+            allItems.contains('aqua') ||
+            allItems.contains('iced');
+
+        if (hasFood && hasDrinks) {
+          return 'Restoran';
+        } else if (hasFood) {
+          return 'Restoran';
+        } else if (hasDrinks) {
+          return 'Kafe/Bar';
+        }
+      }
+
+      // Varsayılan
+      return 'Yemek/İçecek';
+    } catch (e) {
+      print('Business category determination error: $e');
+      return 'Yemek/İçecek';
+    }
+  }
+
+  String _generateInvoiceNumber() {
+    try {
+      // Tarih bazlı unique fatura numarası
+      DateTime now = DateTime.now();
+      String datePrefix =
+          '${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}';
+      String timePrefix =
+          '${now.hour.toString().padLeft(2, '0')}${now.minute.toString().padLeft(2, '0')}';
+      int randomSuffix = (now.millisecond * now.second) % 10000;
+
+      return 'INV$datePrefix$timePrefix${randomSuffix.toString().padLeft(4, '0')}';
+    } catch (e) {
+      print('Invoice number generation error: $e');
+      return 'INV${DateTime.now().millisecondsSinceEpoch.toString().substring(8)}';
+    }
+  }
+
+  String _calculateDueDate() {
+    try {
+      // 30 gün sonra son ödeme tarihi
+      DateTime dueDate = DateTime.now().add(Duration(days: 30));
+      return '${dueDate.year}-${dueDate.month.toString().padLeft(2, '0')}-${dueDate.day.toString().padLeft(2, '0')}';
+    } catch (e) {
+      print('Due date calculation error: $e');
+      return DateTime.now().add(Duration(days: 30)).toString().substring(0, 10);
+    }
+  }
+
+  String _formatAmount(String rawAmount) {
+    try {
+      // Sadece sayı, nokta ve virgül karakterlerini bırak
+      String cleanAmount = rawAmount.replaceAll(RegExp(r'[^\d,.]'), '');
+
+      if (cleanAmount.isEmpty) return '0,00 TL';
+
+      // Virgül ve nokta durumlarını handle et
+      if (cleanAmount.contains(',') && cleanAmount.contains('.')) {
+        // Hem virgül hem nokta varsa, son olanı ondalık ayırıcı olarak kabul et
+        int lastComma = cleanAmount.lastIndexOf(',');
+        int lastDot = cleanAmount.lastIndexOf('.');
+
+        if (lastComma > lastDot) {
+          // Virgül son ise, noktaları kaldır
+          cleanAmount = cleanAmount.replaceAll('.', '');
+          cleanAmount = cleanAmount.replaceAll(',', '.');
+        } else {
+          // Nokta son ise, virgülleri kaldır
+          cleanAmount = cleanAmount.replaceAll(',', '');
+        }
+      } else if (cleanAmount.contains(',')) {
+        // Sadece virgül var
+        int commaCount = ','.allMatches(cleanAmount).length;
+        if (commaCount == 1) {
+          // Tek virgül varsa ondalık ayırıcı
+          cleanAmount = cleanAmount.replaceAll(',', '.');
+        } else {
+          // Birden fazla virgül varsa son olanı ondalık ayırıcı
+          int lastComma = cleanAmount.lastIndexOf(',');
+          String beforeLastComma = cleanAmount
+              .substring(0, lastComma)
+              .replaceAll(',', '');
+          String afterLastComma = cleanAmount.substring(lastComma + 1);
+          cleanAmount = '$beforeLastComma.$afterLastComma';
+        }
+      }
+
+      double? amount = double.tryParse(cleanAmount);
+      if (amount != null && amount > 0) {
+        return _formatAmountFromDouble(amount);
+      }
+    } catch (e) {
+      print('Amount formatting error: $e');
+    }
+
+    return '0,00 TL';
+  }
+
+  String _formatAmountFromDouble(double amount) {
+    // Türk Lirası formatında formatla (1.234,56 TL)
+    String formatted = amount.toStringAsFixed(2);
+    List<String> parts = formatted.split('.');
+
+    String integerPart = parts[0];
+    String decimalPart = parts[1];
+
+    // Binlik ayırıcıları ekle
+    if (integerPart.length > 3) {
+      String reversed = integerPart.split('').reversed.join();
+      List<String> chunks = [];
+      for (int i = 0; i < reversed.length; i += 3) {
+        int end = (i + 3 < reversed.length) ? i + 3 : reversed.length;
+        chunks.add(reversed.substring(i, end));
+      }
+      integerPart = chunks.join('.').split('').reversed.join();
+    }
+
+    return '$integerPart,$decimalPart TL';
+  }
+
+  double? _parseAmount(String rawAmount) {
+    try {
+      String cleanAmount = rawAmount.replaceAll(RegExp(r'[^\d,.]'), '');
+
+      if (cleanAmount.contains(',') && cleanAmount.contains('.')) {
+        int lastComma = cleanAmount.lastIndexOf(',');
+        int lastDot = cleanAmount.lastIndexOf('.');
+
+        if (lastComma > lastDot) {
+          cleanAmount = cleanAmount.replaceAll('.', '');
+          cleanAmount = cleanAmount.replaceAll(',', '.');
+        } else {
+          cleanAmount = cleanAmount.replaceAll(',', '');
+        }
+      } else if (cleanAmount.contains(',')) {
+        cleanAmount = cleanAmount.replaceAll(',', '.');
+      }
+
+      return double.tryParse(cleanAmount);
+    } catch (e) {
+      return null;
+    }
   }
 
   Widget _buildCameraOverlay() {
@@ -612,27 +1086,38 @@ class _KameraSayfasiState extends State<KameraSayfasi> {
 
           // Kamera önizleme alanı
           Expanded(
-            child: Container(
-              margin: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(12),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.1),
-                    blurRadius: 8,
-                    offset: const Offset(0, 2),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                // Ekran genişliğine göre boyutlandır
+                double width = constraints.maxWidth;
+                double height = width * (16 / 9); // 16:9 aspect ratio
+
+                return Container(
+                  width: width,
+                  height: height,
+                  margin: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(12),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.1),
+                        blurRadius: 8,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
                   ),
-                ],
-              ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(12),
-                child: Stack(
-                  children: [
-                    CameraPreview(_controller!),
-                    _buildCameraOverlay(),
-                  ],
-                ),
-              ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        CameraPreview(_controller!),
+                        _buildCameraOverlay(),
+                      ],
+                    ),
+                  ),
+                );
+              },
             ),
           ),
 
@@ -738,7 +1223,7 @@ class _KameraSayfasiState extends State<KameraSayfasi> {
                       child: InkWell(
                         borderRadius: BorderRadius.circular(50),
                         onTap: _takePicture,
-                        child: Container(
+                        child: SizedBox(
                           width: 70,
                           height: 70,
                           child:

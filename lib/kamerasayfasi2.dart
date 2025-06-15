@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:faturacim/globals.dart';
 import 'package:faturacim/sayfa2.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
@@ -9,8 +10,7 @@ class KameraSayfasi2 extends StatefulWidget {
   final String imagePath;
   final Map<String, dynamic>? faturaData;
 
-  const KameraSayfasi2({Key? key, required this.imagePath, this.faturaData})
-    : super(key: key);
+  const KameraSayfasi2({super.key, required this.imagePath, this.faturaData});
 
   @override
   _KameraSayfasi2State createState() => _KameraSayfasi2State();
@@ -80,6 +80,9 @@ class _KameraSayfasi2State extends State<KameraSayfasi2> {
 
   // Mobil için görüntü yükleme metodu
   Widget _buildMobileImage(String imagePath) {
+    print("Gelen imagePath: $imagePath");
+    final file = io.File(imagePath);
+    print("File exists: ${file.existsSync()}");
     return Image.file(
       io.File(imagePath),
       width: double.infinity,
@@ -211,13 +214,16 @@ class _KameraSayfasi2State extends State<KameraSayfasi2> {
   }
 
   Future<void> _uploadInvoice() async {
-    final url = Uri.parse('http://10.121.6.93:5202/api/Invoice');
+    final url = Uri.parse('${ApiConfig.baseUrl}/api/Invoice');
 
     final invoiceData = {
       "title": _faturaVerileri['sirket'] ?? "Fatura",
       "amount":
           double.tryParse(
-            _faturaVerileri['tutar']?.replaceAll(' TL', '') ?? '0',
+            _faturaVerileri['tutar']
+                    ?.replaceAll(' TL', '')
+                    .replaceAll(',', '.') ??
+                '0',
           ) ??
           0,
       "issueDate": DateTime.now().toIso8601String(),

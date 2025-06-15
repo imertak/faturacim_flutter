@@ -5,6 +5,8 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 class KategoriAnaliziSayfasi extends StatefulWidget {
+  const KategoriAnaliziSayfasi({super.key});
+
   @override
   _KategoriAnaliziSayfasiState createState() => _KategoriAnaliziSayfasiState();
 }
@@ -59,10 +61,9 @@ class _KategoriAnaliziSayfasiState extends State<KategoriAnaliziSayfasi> {
       59,
     ).add(const Duration(days: 1));
 
-    try {
-      // Gerçek API endpoint'inizi buraya yazın
+    try {      // Gerçek API endpoint'inizi buraya yazın
       final url = Uri.parse(
-        'http://10.121.6.93:5202/api/invoice/user/$userEmail'
+        'http://127.0.0.1:5202/api/invoice/user/$userEmail'
         '?startDate=${startDate.toIso8601String().split("T")[0]}'
         '&endDate=${endDate.toIso8601String().split("T")[0]}',
       );
