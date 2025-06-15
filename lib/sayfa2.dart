@@ -1,5 +1,6 @@
 // lib/sayfa2.dart
 import 'dart:convert';
+import 'dart:io' as io;
 import 'package:faturacim/gecmisfaturalarsayfas%C4%B1.dart';
 import 'package:faturacim/globals.dart';
 import 'package:faturacim/kategorianalizisayfasi.dart';
@@ -25,6 +26,7 @@ class _Sayfa2State extends State<Sayfa2> {
   bool isLoadingRates = true;
   double monthlyTotal = 0;
   String monthlyTotalText = "";
+  String pendingText = 'Tüm faturalar ödendi';
 
   Future<void> fetchUserInvoices() async {
     try {
@@ -39,17 +41,27 @@ class _Sayfa2State extends State<Sayfa2> {
         59,
         59,
       ).add(const Duration(days: 1)); // bugüne kadar
-      final encodedEmail = Uri.encodeComponent(userEmail!);      final url = Uri.parse(
-        'http://127.0.0.1:5202/api/invoice/user/$encodedEmail'
+      final encodedEmail = Uri.encodeComponent(userEmail!);
+      final currentMonthUrl = Uri.parse(
+        '${ApiConfig.baseUrl}/api/invoice/user/$encodedEmail'
         '?startDate=${startDate.toIso8601String().split("T")[0]}'
         '&endDate=${endDate.toIso8601String().split("T")[0]}',
       );
 
-      final response = await http.get(url);
+      final response = await http.get(currentMonthUrl);
 
       if (response.statusCode == 200) {
-        final List<dynamic> invoicesData = json.decode(response.body);
+        List<dynamic> invoicesData = json.decode(response.body);
+        invoicesData =
+            invoicesData.reversed.toList(); // En son faturalar en üstte
 
+        // Bekleyen faturaları sayma
+        int pendingInvoicesCount =
+            invoicesData.where((invoice) {
+              return invoice['payingStatus'] == null ||
+                  invoice['payingStatus'].toString().toLowerCase() ==
+                      'bekliyor';
+            }).length;
         setState(() {
           recentInvoices =
               invoicesData
@@ -59,8 +71,9 @@ class _Sayfa2State extends State<Sayfa2> {
                       'amount': (invoice['amount'] ?? 0.0).toStringAsFixed(2),
                       'date': _formatDate(invoice['issueDate']),
                       'type': _determineInvoiceType(invoice['category']),
-                      'status':
-                          invoice['payingStatus'] == null ? 'pending' : 'paid',
+                      'payingStatus':
+                          invoice['payingStatus'] ??
+                          'Bekliyor', // Database'den direkt değer
                       'category': invoice['category'] ?? 'Diğer',
                     },
                   )
@@ -71,6 +84,10 @@ class _Sayfa2State extends State<Sayfa2> {
           isLoadingInvoices = false;
           monthlyTotal = _calculateMonthlyTotal(invoicesData);
           monthlyTotalText = '${monthlyTotal.toStringAsFixed(2)} TL';
+          pendingText =
+              pendingInvoicesCount > 0
+                  ? '+$pendingInvoicesCount bekleyen'
+                  : 'Tüm faturalar ödendi';
         });
       } else {
         print('Fatura çekme hatası: ${response.statusCode}');
@@ -87,8 +104,28 @@ class _Sayfa2State extends State<Sayfa2> {
   }
 
   double _calculateMonthlyTotal(List<dynamic> invoicesData) {
+    // Şu anki tarih
+    final DateTime now = DateTime.now();
+
+    // 30 gün önceki tarih
+    final DateTime thirtyDaysAgo = now.subtract(Duration(days: 30));
+
+    // Son 30 gün içindeki faturaların toplam tutarını hesapla
     return invoicesData.fold(0.0, (total, invoice) {
-      return total + (invoice['amount'] ?? 0.0);
+      // Invoice'ın tarihini parse et
+      DateTime? invoiceDate =
+          invoice['issueDate'] != null
+              ? DateTime.tryParse(invoice['issueDate'])
+              : null;
+
+      // Tarih kontrolü ve tutar hesaplama
+      if (invoiceDate != null &&
+          invoiceDate.isAfter(thirtyDaysAgo) &&
+          invoiceDate.isBefore(now)) {
+        return total + (invoice['amount'] ?? 0.0);
+      }
+
+      return total;
     });
   }
 
@@ -133,6 +170,40 @@ class _Sayfa2State extends State<Sayfa2> {
         return 'Su';
       default:
         return 'Diğer';
+    }
+  }
+
+  // PayingStatus'a göre renk belirleme fonksiyonu
+  Color _getStatusColor(String status) {
+    switch (status.toLowerCase()) {
+      case 'Ödendi':
+      case 'paid':
+        return Color(0xFF2E7D6B); // Yeşil
+      case 'Bekliyor':
+      case 'pending':
+        return Color(0xFFFF8A50); // Turuncu
+      case 'Gecikmiş':
+      case 'overdue':
+        return Colors.red; // Kırmızı
+      default:
+        return Color(0xFFFF8A50); // Varsayılan turuncu
+    }
+  }
+
+  // PayingStatus'a göre arka plan rengi belirleme fonksiyonu
+  Color _getStatusBackgroundColor(String status) {
+    switch (status.toLowerCase()) {
+      case 'ödendi':
+      case 'paid':
+        return Color(0xFFE8F5E8); // Açık yeşil
+      case 'bekliyor':
+      case 'pending':
+        return Color(0xFFFFF4E6); // Açık turuncu
+      case 'gecikmiş':
+      case 'overdue':
+        return Color(0xFFFFEBEE); // Açık kırmızı
+      default:
+        return Color(0xFFFFF4E6); // Varsayılan açık turuncu
     }
   }
 
@@ -327,6 +398,13 @@ class _Sayfa2State extends State<Sayfa2> {
 
   @override
   Widget build(BuildContext context) {
+    // Theme kontrolü için gerekli değişken
+    final theme =
+        MediaQuery.of(context).platformBrightness == Brightness.dark
+            ? 'dark'
+            : 'light';
+    final isDarkTheme = theme == 'dark';
+
     return Scaffold(
       backgroundColor: Colors.white,
       body: SafeArea(
@@ -381,7 +459,11 @@ class _Sayfa2State extends State<Sayfa2> {
                             children: [
                               IconButton(
                                 onPressed: () {},
-                                icon: Icon(Icons.search, color: Colors.white),
+                                icon: Icon(
+                                  Icons.search,
+                                  color:
+                                      isDarkTheme ? Colors.white : Colors.black,
+                                ),
                               ),
                               GestureDetector(
                                 onTap: () {
@@ -394,11 +476,19 @@ class _Sayfa2State extends State<Sayfa2> {
                                 },
                                 child: CircleAvatar(
                                   radius: 18,
-                                  backgroundColor: Color(0xFFFF8A50),
+                                  backgroundColor:
+                                      isDarkTheme
+                                          ? Colors.grey[800]
+                                          : Color(0xFFFF8A50),
                                   child: Text(
-                                    'FU',
+                                    userEmail != null && userEmail!.isNotEmpty
+                                        ? userEmail![0].toUpperCase()
+                                        : 'U',
                                     style: TextStyle(
-                                      color: Colors.white,
+                                      color:
+                                          isDarkTheme
+                                              ? Colors.white
+                                              : Colors.black,
                                       fontWeight: FontWeight.w600,
                                       fontSize: 14,
                                     ),
@@ -409,7 +499,8 @@ class _Sayfa2State extends State<Sayfa2> {
                           ),
                         ],
                       ),
-                      SizedBox(height: 20),
+                      SizedBox(height: 8),
+
                       // Balance Card
                       Container(
                         width: double.infinity,
@@ -487,7 +578,7 @@ class _Sayfa2State extends State<Sayfa2> {
                                 ),
                                 Spacer(),
                                 Text(
-                                  '+3 bekleyen',
+                                  pendingText, // Dinamik olarak değişecek
                                   style: TextStyle(
                                     color: Colors.grey[600],
                                     fontSize: 12,
@@ -644,9 +735,9 @@ class _Sayfa2State extends State<Sayfa2> {
                       ],
                     ),
                     SizedBox(height: 12),
-                    ...recentInvoices
-                        .map((invoice) => _buildInvoiceCard(invoice))
-                        ,
+                    ...recentInvoices.map(
+                      (invoice) => _buildInvoiceCard(invoice),
+                    ),
                   ],
                 ),
               ),
@@ -897,7 +988,7 @@ class _Sayfa2State extends State<Sayfa2> {
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Text(
-                  invoice['status'] == 'paid' ? 'Ödendi' : 'Bekliyor',
+                  invoice['payingStatus'],
                   style: TextStyle(
                     color:
                         invoice['status'] == 'paid'

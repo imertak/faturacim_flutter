@@ -25,11 +25,13 @@ class _GecmisFaturalarSayfasiState extends State<GecmisFaturalarSayfasi> {
   void initState() {
     super.initState();
     _fetchFaturalar();
-  }  Future<void> _fetchFaturalar() async {
+  }
+
+  Future<void> _fetchFaturalar() async {
     try {
       // Check if userEmail is set
       print('UserEmail değeri: $userEmail');
-      
+
       if (userEmail == null || userEmail!.isEmpty) {
         print('HATA: userEmail null veya boş!');
         setState(() {
@@ -38,14 +40,16 @@ class _GecmisFaturalarSayfasiState extends State<GecmisFaturalarSayfasi> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Kullanıcı e-postası bulunamadı. Lütfen tekrar giriş yapın.'),
+              content: Text(
+                'Kullanıcı e-postası bulunamadı. Lütfen tekrar giriş yapın.',
+              ),
               backgroundColor: Colors.orange,
             ),
           );
         }
         return;
       }
-      
+
       final encodedEmail = Uri.encodeComponent(userEmail!);
       final url = Uri.parse(
         '${ApiConfig.baseUrl}${ApiConfig.invoiceUser}/$encodedEmail',
@@ -65,8 +69,10 @@ class _GecmisFaturalarSayfasiState extends State<GecmisFaturalarSayfasi> {
       print('API yanıtı: ${response.statusCode}'); // Debug için
 
       if (response.statusCode == 200) {
-        final List<dynamic> invoicesData = json.decode(response.body);
-        
+        List<dynamic> invoicesData = json.decode(response.body);
+        invoicesData =
+            invoicesData.reversed.toList(); // En son faturalar en üstte
+
         print('Alınan fatura sayısı: ${invoicesData.length}'); // Debug için
 
         setState(() {
@@ -78,9 +84,9 @@ class _GecmisFaturalarSayfasiState extends State<GecmisFaturalarSayfasi> {
                   'amount': (invoice['amount'] ?? 0.0).toStringAsFixed(2),
                   'date': _formatDate(invoice['issueDate']),
                   'type': _determineInvoiceType(invoice['category']),
-                  'status':
-                      invoice['payingStatus'] == null ? 'pending' : 'paid',
+                  'status': invoice['payingStatus'],
                   'category': invoice['category'] ?? 'Diğer',
+                  'imagePath': invoice['imagePath'],
                 };
               }).toList();
 
@@ -93,32 +99,37 @@ class _GecmisFaturalarSayfasiState extends State<GecmisFaturalarSayfasi> {
         setState(() {
           _isLoading = false;
         });
-        
+
         // Kullanıcıya hata mesajı göster
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Faturalar yüklenirken hata oluştu: ${response.statusCode}'),
+              content: Text(
+                'Faturalar yüklenirken hata oluştu: ${response.statusCode}',
+              ),
               backgroundColor: Colors.red,
             ),
           );
         }
-      }    } catch (e) {
+      }
+    } catch (e) {
       print('Fatura çekme hatası: $e');
       print('Hata türü: ${e.runtimeType}');
-      
+
       // Bağlantı testi yap
       try {
-        final testResponse = await http.get(Uri.parse('https://www.google.com'));
+        final testResponse = await http.get(
+          Uri.parse('https://www.google.com'),
+        );
         print('Google bağlantı testi: ${testResponse.statusCode}');
       } catch (testError) {
         print('İnternet bağlantısı yok: $testError');
       }
-      
+
       setState(() {
         _isLoading = false;
       });
-      
+
       // Kullanıcıya hata mesajı göster
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -209,10 +220,11 @@ class _GecmisFaturalarSayfasiState extends State<GecmisFaturalarSayfasi> {
         fatura['amount'],
         fatura['date'],
         fatura['type'],
-        fatura['status'] == 'paid' ? 'Ödendi' : 'Bekliyor',
+        fatura['payingStatus'],
         fatura['category'],
       ]);
-    }    Directory? directory;
+    }
+    Directory? directory;
     if (Platform.isAndroid || Platform.isIOS) {
       directory = await getExternalStorageDirectory();
     } else {
@@ -220,9 +232,9 @@ class _GecmisFaturalarSayfasiState extends State<GecmisFaturalarSayfasi> {
     }
 
     if (directory == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Dosya dizini bulunamadı!")),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text("Dosya dizini bulunamadı!")));
       return;
     }
 
@@ -417,7 +429,7 @@ class _GecmisFaturalarSayfasiState extends State<GecmisFaturalarSayfasi> {
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Text(
-                    fatura['status'] == 'paid' ? 'Ödendi' : 'Bekliyor',
+                    fatura['status'],
                     style: TextStyle(
                       color:
                           fatura['status'] == 'paid'

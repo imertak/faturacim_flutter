@@ -1,9 +1,15 @@
+import 'dart:async';
+import 'dart:io';
+
+import 'package:faturacim/globals.dart';
 import 'package:faturacim/profilduzenleme.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
 
 class ProfilSayfasi extends StatefulWidget {
-  const ProfilSayfasi({super.key});
+  const ProfilSayfasi({Key? key}) : super(key: key);
 
   @override
   _ProfilSayfasiState createState() => _ProfilSayfasiState();
@@ -13,17 +19,157 @@ class _ProfilSayfasiState extends State<ProfilSayfasi> {
   bool _bildirimAyari = true;
   bool _karanlikMod = false;
 
+  // Kullanıcı bilgileri için değişkenler
+  String _fullName = 'Yükleniyor...';
+  String _email = '';
+  String _profilResmiUrl = 'https://randomuser.me/api/portraits/women/44.jpg';
+  bool _isLoading = true;
+  String _errorMessage = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchUserInfo();
+  }
+
+  Future<void> _fetchUserInfo() async {
+    // Globals'dan email kontrolü
+    if (userEmail == null) {
+      setState(() {
+        _errorMessage = 'Kullanıcı email bilgisi bulunamadı';
+        _isLoading = false;
+      });
+      return;
+    }
+
+    try {
+      setState(() {
+        _isLoading = true;
+        _errorMessage = '';
+      });
+
+      final Uri url = Uri.parse(
+        '${ApiConfig.baseUrl}${ApiConfig.userInfo}',
+      ).replace(queryParameters: {'email': userEmail});
+
+      final Map<String, String> headers = {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        // Token gerekiyorsa ekleyin
+        // 'Authorization': 'Bearer $token',
+      };
+
+      // GET metodunda body kullanılmaz
+      final response = await http
+          .get(url, headers: headers)
+          .timeout(Duration(seconds: 30));
+
+      print('Response Status Code: ${response.statusCode}');
+      print('Response Body: ${response.body}');
+
+      if (response.statusCode == 200) {
+        // Başarılı yanıt
+        final userData = json.decode(response.body);
+
+        setState(() {
+          _fullName = userData['fullName'] ?? 'İsim Yok';
+          _email = userData['email'] ?? '';
+          _isLoading = false;
+        });
+      } else {
+        // Hata durumu
+        setState(() {
+          _errorMessage =
+              'Kullanıcı bilgileri alınamadı: ${response.statusCode}';
+          _isLoading = false;
+        });
+      }
+    } on TimeoutException {
+      setState(() {
+        _errorMessage = 'İstek zaman aşımına uğradı';
+        _isLoading = false;
+      });
+    } on SocketException {
+      setState(() {
+        _errorMessage = 'Ağ bağlantısı hatası';
+        _isLoading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _errorMessage = 'Beklenmedik bir hata oluştu: ${e.toString()}';
+        _isLoading = false;
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final isDarkTheme = theme == 'dark';
+
+    // Loading durumu
+    if (_isLoading) {
+      return Scaffold(
+        backgroundColor: isDarkTheme ? Colors.black : Colors.white,
+        body: Center(
+          child: CircularProgressIndicator(
+            color: isDarkTheme ? Colors.white : Color(0xFF2E7D6B),
+          ),
+        ),
+      );
+    }
+
+    // Hata durumu
+    if (_errorMessage.isNotEmpty) {
+      return Scaffold(
+        backgroundColor: isDarkTheme ? Colors.black : Colors.white,
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                _errorMessage,
+                style: TextStyle(
+                  color: isDarkTheme ? Colors.white : Colors.black,
+                ),
+              ),
+              SizedBox(height: 20),
+              ElevatedButton(
+                onPressed: _fetchUserInfo,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor:
+                      isDarkTheme ? Colors.grey[800] : Color(0xFF2E7D6B),
+                ),
+                child: Text(
+                  'Tekrar Dene',
+                  style: TextStyle(
+                    color: isDarkTheme ? Colors.white : Colors.black,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    // Mevcut profil sayfası UI'ı
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: isDarkTheme ? Colors.black : Colors.white,
       appBar: AppBar(
-        backgroundColor: Color(0xFF2E7D6B),
-        foregroundColor: Colors.white,
-        title: Text('PROFİLİM'),
+        backgroundColor: isDarkTheme ? Colors.grey[900] : Color(0xFF2E7D6B),
+        title: Text(
+          'PROFİLİM',
+          style: TextStyle(color: isDarkTheme ? Colors.white : Colors.black),
+        ),
         centerTitle: true,
         actions: [
-          IconButton(icon: Icon(Icons.edit), onPressed: _profilDuzenle),
+          IconButton(
+            icon: Icon(
+              Icons.edit,
+              color: isDarkTheme ? Colors.white : Colors.black,
+            ),
+            onPressed: _profilDuzenle,
+          ),
         ],
       ),
       body: SingleChildScrollView(
@@ -32,20 +178,18 @@ class _ProfilSayfasiState extends State<ProfilSayfasi> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              // Profil Fotoğrafı
               CircleAvatar(
                 radius: 60,
-                backgroundImage: NetworkImage(
-                  'https://randomuser.me/api/portraits/women/44.jpg',
-                ),
+                backgroundImage: NetworkImage(_profilResmiUrl),
                 child: Align(
                   alignment: Alignment.bottomRight,
                   child: CircleAvatar(
                     radius: 18,
-                    backgroundColor: Color(0xFF2E7D6B),
+                    backgroundColor:
+                        isDarkTheme ? Colors.grey[800] : Color(0xFF2E7D6B),
                     child: Icon(
                       Icons.camera_alt,
-                      color: Colors.white,
+                      color: isDarkTheme ? Colors.white : Colors.black,
                       size: 20,
                     ),
                   ),
@@ -53,16 +197,19 @@ class _ProfilSayfasiState extends State<ProfilSayfasi> {
               ),
               SizedBox(height: 20),
               Text(
-                'Ayşe Yılmaz',
+                _fullName,
                 style: TextStyle(
                   fontSize: 22,
                   fontWeight: FontWeight.bold,
-                  color: Colors.black87,
+                  color: isDarkTheme ? Colors.white : Colors.black87,
                 ),
               ),
               Text(
-                'ayse.yilmaz@email.com',
-                style: TextStyle(fontSize: 16, color: Colors.grey[600]),
+                _email,
+                style: TextStyle(
+                  fontSize: 16,
+                  color: isDarkTheme ? Colors.white : Colors.grey[600],
+                ),
               ),
               SizedBox(height: 30),
 
@@ -72,7 +219,8 @@ class _ProfilSayfasiState extends State<ProfilSayfasi> {
                 baslik: 'Bildirimler',
                 widget: CupertinoSwitch(
                   value: _bildirimAyari,
-                  activeTrackColor: Color(0xFF2E7D6B),
+                  activeTrackColor:
+                      isDarkTheme ? Colors.grey[800] : Color(0xFF2E7D6B),
                   onChanged: (bool value) {
                     setState(() {
                       _bildirimAyari = value;
@@ -86,11 +234,13 @@ class _ProfilSayfasiState extends State<ProfilSayfasi> {
                 baslik: 'Karanlık Mod',
                 widget: CupertinoSwitch(
                   value: _karanlikMod,
-                  activeTrackColor: Color(0xFF2E7D6B),
+                  activeTrackColor:
+                      isDarkTheme ? Colors.grey[800] : Color(0xFF2E7D6B),
                   onChanged: (bool value) {
                     setState(() {
                       _karanlikMod = value;
                     });
+                    theme = _karanlikMod ? 'dark' : 'light';
                   },
                 ),
               ),
@@ -100,7 +250,9 @@ class _ProfilSayfasiState extends State<ProfilSayfasi> {
                 baslik: 'Dil Seçimi',
                 widget: Text(
                   'Türkçe',
-                  style: TextStyle(color: Colors.grey[600]),
+                  style: TextStyle(
+                    color: isDarkTheme ? Colors.white : Colors.grey[600],
+                  ),
                 ),
                 onTap: _dilSecenekleri,
               ),
@@ -108,7 +260,10 @@ class _ProfilSayfasiState extends State<ProfilSayfasi> {
               _buildAyarSatiri(
                 icon: Icons.security,
                 baslik: 'Güvenlik',
-                widget: Icon(Icons.chevron_right, color: Colors.grey[600]),
+                widget: Icon(
+                  Icons.chevron_right,
+                  color: isDarkTheme ? Colors.grey[400] : Colors.grey[600],
+                ),
                 onTap: _guvenlikAyarlari,
               ),
 
@@ -118,7 +273,8 @@ class _ProfilSayfasiState extends State<ProfilSayfasi> {
               ElevatedButton(
                 onPressed: _cikisYap,
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: Color(0xFFFF6B6B),
+                  backgroundColor:
+                      isDarkTheme ? Colors.red[800] : Color(0xFFFF6B6B),
                   minimumSize: Size(double.infinity, 50),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(10),
@@ -127,7 +283,7 @@ class _ProfilSayfasiState extends State<ProfilSayfasi> {
                 child: Text(
                   'Çıkış Yap',
                   style: TextStyle(
-                    color: Colors.white,
+                    color: isDarkTheme ? Colors.white : Colors.black,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
@@ -201,8 +357,13 @@ class _ProfilSayfasiState extends State<ProfilSayfasi> {
   }
 
   Widget _buildDilSecenegi(String dil, bool secili) {
+    final isDarkTheme = theme == 'dark';
+
     return ListTile(
-      title: Text(dil),
+      title: Text(
+        dil,
+        style: TextStyle(color: isDarkTheme ? Colors.white : Colors.black),
+      ),
       trailing: secili ? Icon(Icons.check, color: Color(0xFF2E7D6B)) : null,
       onTap: () {
         Navigator.pop(context);
